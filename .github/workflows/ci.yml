@@ -169,10 +169,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
+          # On pull_request events the {{branch}} template resolves to an
+          # empty string, which produces an invalid `:-<sha>` tag. Use
+          # format=short + explicit prefix so the tag is always valid.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,format=short,prefix=sha-
             type=semver,pattern={{version}}
 
       - name: Log in to Docker Hub
@@ -208,10 +211,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.FRONTEND_IMAGE }}
+          # See the backend metadata step — {{branch}} resolves to empty
+          # on PR events and would produce an invalid `:-<sha>` tag.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,format=short,prefix=sha-
             type=semver,pattern={{version}}
 
       - name: Log in to Docker Hub
