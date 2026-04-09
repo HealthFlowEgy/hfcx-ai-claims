@@ -236,4 +236,108 @@ export const api = {
       ...opts,
     });
   },
+
+  providerDenials(opts: FetchOptions = {}) {
+    return request<{
+      categories: Array<{ category: string; count: number; total_egp: number }>;
+      items: Array<{
+        claim_id: string;
+        correlation_id: string;
+        claim_type: string;
+        total_amount: number;
+        denied_on: string;
+        reason: string;
+        ai_appeal_summary: string;
+      }>;
+    }>('/internal/ai/bff/provider/denials', opts);
+  },
+
+  payerAnalytics(opts: FetchOptions = {}) {
+    return request<{
+      loss_ratio: number;
+      approval_rate: number;
+      avg_processing_minutes: number;
+      fraud_detection_rate: number;
+      top_denial_reasons: Array<{ reason: string; count: number }>;
+      claims_by_type: Array<{ type: string; count: number }>;
+    }>('/internal/ai/bff/payer/analytics', opts);
+  },
+
+  siuInvestigations(opts: FetchOptions = {}) {
+    return request<
+      Array<{
+        case_id: string;
+        correlation_id: string;
+        assigned_to: string | null;
+        workflow_status: string;
+        opened_on: string;
+        financial_impact_egp: number;
+        provider_id: string;
+      }>
+    >('/internal/ai/bff/siu/investigations', opts);
+  },
+
+  siuCrossPayerSearch(
+    payload: {
+      provider_id?: string;
+      patient_nid_hash?: string;
+      icd10_code?: string;
+      procedure_code?: string;
+      limit?: number;
+    },
+    opts: FetchOptions = {},
+  ) {
+    return request<
+      Array<{
+        claim_id: string;
+        correlation_id: string;
+        payer_id: string;
+        provider_id: string;
+        total_amount: number;
+        claim_type: string;
+        submitted_at: string;
+        is_potential_duplicate: boolean;
+      }>
+    >('/internal/ai/bff/siu/search', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
+  regulatoryInsurers(opts: FetchOptions = {}) {
+    return request<
+      Array<{
+        name: string;
+        claims_volume: number;
+        loss_ratio: number;
+        denial_rate: number;
+        processing_time_days: number;
+        fraud_rate: number;
+        ai_accuracy: number;
+      }>
+    >('/internal/ai/bff/regulatory/insurers', opts);
+  },
+
+  regulatoryGeographic(opts: FetchOptions = {}) {
+    return request<
+      Array<{
+        governorate: string;
+        claims: number;
+        denials: number;
+        fraud_rate: number;
+      }>
+    >('/internal/ai/bff/regulatory/geographic', opts);
+  },
+
+  regulatoryCompliance(opts: FetchOptions = {}) {
+    return request<
+      Array<{
+        insurer: string;
+        compliance_score: number;
+        last_audit: string;
+        status: string;
+      }>
+    >('/internal/ai/bff/regulatory/compliance', opts);
+  },
 };

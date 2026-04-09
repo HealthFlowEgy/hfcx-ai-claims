@@ -171,6 +171,76 @@
       "submit": "Submit claim",
       "success": "Claim submitted successfully",
       "correlationId": "Correlation ID"
+    },
+    "eligibility": {
+      "title": "Eligibility check",
+      "intro": "Verify patient coverage against the participating payer registry.",
+      "run": "Run eligibility check",
+      "coverageActive": "Coverage active",
+      "coverageType": "Coverage type",
+      "copayPct": "Copay %",
+      "deductibleRemaining": "Deductible remaining",
+      "exclusions": "Exclusions",
+      "cacheHit": "Cached result",
+      "lastChecked": "Last checked"
+    },
+    "preauth": {
+      "title": "Pre-authorization",
+      "intro": "Submit and track pre-authorization requests for planned services.",
+      "createRequest": "New request",
+      "requestId": "Request ID",
+      "requested": "Requested",
+      "authorizedQty": "Authorized quantity",
+      "authorizationNumber": "Authorization #",
+      "validUntil": "Valid until",
+      "clinicalJustification": "Clinical justification"
+    },
+    "denials": {
+      "title": "Denials & appeals",
+      "intro": "Denied claims with AI-generated appeal guidance.",
+      "categories": "By denial reason",
+      "appealGuidance": "Appeal guidance",
+      "appealAction": "Start appeal",
+      "deniedOn": "Denied on",
+      "reason": "Denial reason",
+      "count": "Count",
+      "totalEgp": "Total (EGP)",
+      "aiSummary": "AI appeal summary",
+      "attachDocs": "Attach supporting documentation",
+      "submitAppeal": "Submit appeal"
+    },
+    "payments": {
+      "title": "Payments",
+      "intro": "Settled payments and reconciliation view.",
+      "paymentRef": "Payment reference",
+      "paidOn": "Paid on",
+      "settledAmount": "Settled amount",
+      "method": "Method",
+      "reconciliationStatus": "Reconciliation",
+      "reconciled": "Reconciled",
+      "unreconciled": "Pending"
+    },
+    "communications": {
+      "title": "Communications",
+      "intro": "Information requests exchanged with payers.",
+      "from": "From",
+      "subject": "Subject",
+      "received": "Received",
+      "reply": "Reply",
+      "attach": "Attach",
+      "noThreads": "No active communication threads"
+    },
+    "settings": {
+      "title": "Settings",
+      "profile": "Profile",
+      "organization": "Organization",
+      "contactEmail": "Contact email",
+      "languagePref": "Language preference",
+      "notifications": "Notifications",
+      "notifyDenial": "Notify on denial",
+      "notifyPayment": "Notify on payment",
+      "notifyComms": "Notify on communications",
+      "save": "Save settings"
     }
   },
   "payer": {
@@ -198,6 +268,8 @@
       "similarClaims": "Similar claims"
     },
     "analytics": {
+      "title": "Analytics",
+      "intro": "Payer performance KPIs and claims distribution.",
       "lossRatio": "Loss ratio",
       "claimsApprovalRate": "Claims approval rate",
       "avgProcessingTime": "Avg processing time",
@@ -206,6 +278,40 @@
       "claimsByType": "Claims by type",
       "claimsByGovernorate": "Claims by governorate",
       "aiAccuracy": "AI accuracy"
+    },
+    "preauth": {
+      "title": "Pre-authorization review",
+      "intro": "Review pre-auth requests with AI medical-necessity assessment.",
+      "necessityVerdict": "Medical necessity verdict",
+      "necessary": "Medically necessary",
+      "needsReview": "Needs review",
+      "notJustified": "Not justified",
+      "guidelines": "Cited clinical guidelines",
+      "partialApprove": "Partial approve",
+      "requestMoreInfo": "Request more info",
+      "authNumber": "Authorization number",
+      "validityPeriod": "Validity period"
+    },
+    "settled": {
+      "title": "Settled claims",
+      "intro": "Claims that have been decided and settled."
+    },
+    "fraud": {
+      "title": "Fraud alerts",
+      "intro": "Claims flagged by the AI fraud-detection agent (risk score > 0.6).",
+      "refer": "Refer to SIU"
+    },
+    "communications": {
+      "title": "Communications",
+      "intro": "Pending information requests sent to providers."
+    },
+    "settings": {
+      "title": "Settings",
+      "adjudicationRules": "Adjudication rules",
+      "autoApproveThreshold": "Auto-approve AI confidence threshold",
+      "autoRoutingEnabled": "Auto-routing enabled",
+      "notifications": "Notifications",
+      "save": "Save settings"
     }
   },
   "siu": {
@@ -234,9 +340,40 @@
     },
     "search": {
       "title": "Cross-payer search",
+      "intro": "Search claims across all participating payers by provider, patient, diagnosis, or procedure.",
       "searchBy": "Search by…",
       "results": "Results",
-      "potentialDuplicate": "Potential duplicate"
+      "potentialDuplicate": "Potential duplicate",
+      "providerId": "Provider ID",
+      "patientNid": "Patient NID",
+      "icd10": "ICD-10",
+      "procedureCode": "Procedure code",
+      "runSearch": "Run search"
+    },
+    "investigations": {
+      "title": "Investigations",
+      "intro": "Active and historical fraud investigation cases.",
+      "caseId": "Case ID",
+      "assignedTo": "Assigned to",
+      "workflowStatus": "Workflow status",
+      "open": "Open",
+      "underReview": "Under review",
+      "referred": "Referred",
+      "closedLegitimate": "Closed — legitimate",
+      "closedFraud": "Closed — fraud",
+      "openedOn": "Opened on",
+      "financialImpact": "Financial impact"
+    },
+    "reports": {
+      "title": "SIU reports",
+      "intro": "Investigation reports and fraud trend analysis.",
+      "generate": "Generate report",
+      "reportType": "Report type",
+      "weekly": "Weekly fraud summary",
+      "monthly": "Monthly fraud trends",
+      "byProvider": "By provider",
+      "history": "Report history",
+      "download": "Download"
     }
   },
   "regulatory": {
@@ -251,23 +388,52 @@
     },
     "insurers": {
       "title": "Insurer comparison",
+      "intro": "Ranked table of all active insurers with performance metrics.",
       "name": "Name",
       "claimsVolume": "Claims volume",
       "lossRatio": "Loss ratio",
       "denialRate": "Denial rate",
       "processingTime": "Processing time",
       "fraudRate": "Fraud rate",
-      "aiAccuracy": "AI accuracy"
+      "aiAccuracy": "AI accuracy",
+      "radarTitle": "Selected insurer radar"
     },
     "geographic": {
       "title": "Geographic analysis",
+      "intro": "Claims and fraud metrics by Egyptian governorate.",
       "selectMetric": "Select metric",
-      "governorate": "Governorate"
+      "governorate": "Governorate",
+      "claims": "Claims",
+      "denials": "Denials",
+      "fraudRate": "Fraud rate",
+      "nationalAvg": "National average"
+    },
+    "fraud": {
+      "title": "Fraud oversight",
+      "intro": "Market-wide fraud trends and SIU effectiveness."
+    },
+    "compliance": {
+      "title": "Compliance",
+      "intro": "Insurer compliance status with FRA regulatory requirements.",
+      "insurer": "Insurer",
+      "complianceScore": "Compliance score",
+      "lastAudit": "Last audit",
+      "status": "Status",
+      "compliant": "Compliant",
+      "atRisk": "At risk",
+      "nonCompliant": "Non-compliant"
     },
     "reports": {
       "title": "Regulatory reports",
+      "intro": "Generate FRA-mandated Arabic PDF compliance reports.",
       "generateNow": "Generate now",
-      "dataFreshness": "Data as of"
+      "dataFreshness": "Data as of",
+      "reportType": "Report type",
+      "monthly": "Monthly compliance",
+      "quarterly": "Quarterly market",
+      "annual": "Annual summary",
+      "scheduled": "Scheduled reports",
+      "history": "Report history"
     }
   }
 }

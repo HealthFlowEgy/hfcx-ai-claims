@@ -1,13 +1,148 @@
-import { getTranslations } from 'next-intl/server';
+'use client';
 
-import { ComingSoon } from '@/components/shared/coming-soon';
+import { useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { Save, User } from 'lucide-react';
 
-export default async function Page() {
-  const t = await getTranslations('nav');
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+export default function ProviderSettingsPage() {
+  const t = useTranslations('provider.settings');
+  const tc = useTranslations('common');
+
+  const [profile, setProfile] = useState({
+    name: 'Dr. Fatma Abdelrahman',
+    organization: 'Kasr El Aini Hospital',
+    email: 'fatma.abdelrahman@kasralainy.example.eg',
+    language: 'ar',
+  });
+  const [notifications, setNotifications] = useState({
+    denial: true,
+    payment: true,
+    comms: false,
+  });
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    // In production: POST /api/bff/provider/settings
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   return (
-    <ComingSoon
-      title={t('settings')}
-      srsReference="SRS §4.1"
-    />
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
+      </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="size-5 text-hcx-primary" aria-hidden />
+            {t('profile')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              value={profile.name}
+              onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="org">{t('organization')}</Label>
+            <Input
+              id="org"
+              value={profile.organization}
+              onChange={(e) =>
+                setProfile({ ...profile, organization: e.target.value })
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="email">{t('contactEmail')}</Label>
+            <Input
+              id="email"
+              type="email"
+              dir="ltr"
+              value={profile.email}
+              onChange={(e) =>
+                setProfile({ ...profile, email: e.target.value })
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="lang">{t('languagePref')}</Label>
+            <select
+              id="lang"
+              value={profile.language}
+              onChange={(e) =>
+                setProfile({ ...profile, language: e.target.value })
+              }
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="ar">العربية</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('notifications')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md border border-border p-3">
+            <span className="text-sm font-medium">{t('notifyDenial')}</span>
+            <input
+              type="checkbox"
+              checked={notifications.denial}
+              onChange={(e) =>
+                setNotifications({ ...notifications, denial: e.target.checked })
+              }
+              className="size-4"
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md border border-border p-3">
+            <span className="text-sm font-medium">{t('notifyPayment')}</span>
+            <input
+              type="checkbox"
+              checked={notifications.payment}
+              onChange={(e) =>
+                setNotifications({ ...notifications, payment: e.target.checked })
+              }
+              className="size-4"
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md border border-border p-3">
+            <span className="text-sm font-medium">{t('notifyComms')}</span>
+            <input
+              type="checkbox"
+              checked={notifications.comms}
+              onChange={(e) =>
+                setNotifications({ ...notifications, comms: e.target.checked })
+              }
+              className="size-4"
+            />
+          </label>
+        </CardContent>
+      </Card>
+
+      <div className="flex items-center gap-3">
+        <Button onClick={save}>
+          <Save className="size-4" aria-hidden />
+          {t('save')}
+        </Button>
+        {saved && (
+          <span className="text-sm text-hcx-success">{tc('confirm')} ✓</span>
+        )}
+      </div>
+    </div>
   );
 }
