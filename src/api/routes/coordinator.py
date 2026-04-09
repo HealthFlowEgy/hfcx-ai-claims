@@ -1,0 +1,67 @@
+"""
+POST /internal/ai/coordinate — Submit FHIR Claim for AI orchestration
+"""
+from __future__ import annotations
+
+import time
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.agents.coordinator import CoordinatorAgent
+from src.api.middleware import verify_service_jwt
+from src.models.schemas import (
+    AICoordinateRequest,
+    AICoordinateResponse,
+    FHIRClaimBundle,
+)
+from src.utils.fhir_parser import FHIRClaimParser
+
+log = structlog.get_logger(__name__)
+router = APIRouter()
+
+
+@router.post(
+    "/coordinate",
+    response_model=AICoordinateResponse,
+    summary="Submit FHIR Claim for AI Analysis",
+    description=(
+        "Accepts a FHIR R4 Claim bundle and runs multi-agent AI adjudication. "
+        "Returns enriched claim with eligibility, coding, fraud, and necessity assessments."
+    ),
+)
+async def coordinate_claim(
+    request: AICoordinateRequest,
+    _: str = Depends(verify_service_jwt),
+) -> AICoordinateResponse:
+    parser = FHIRClaimParser()
+    coordinator = CoordinatorAgent()
+
+    try:
+        # Parse FHIR bundle into our internal model
+        claim: FHIRClaimBundle = parser.parse(
+            raw_bundle=request.fhir_claim_bundle,
+            hcx_headers=request.hcx_headers,
+        )
+    except Exception as exc:
+        log.error("fhir_parse_error", error=str(exc))
+        raise HTTPException(status_code=422, detail=f"FHIR bundle parse error: {exc}")
+
+    t0 = time.monotonic()
+    analysis = await coordinator.process_claim(claim)
+    processing_ms = int((time.monotonic() - t0) * 1000)
+
+    return AICoordinateResponse(
+        correlation_id=analysis.correlation_id,
+        claim_id=claim.claim_id,
+        adjudication_decision=analysis.adjudication_decision,
+        overall_confidence=analysis.overall_confidence or 0.0,
+        requires_human_review=analysis.requires_human_review,
+        human_review_reasons=analysis.human_review_reasons,
+        eligibility=analysis.eligibility,
+        coding=analysis.coding,
+        fraud=analysis.fraud,
+        necessity=analysis.necessity,
+        processing_time_ms=processing_ms,
+        fhir_extensions=[],  # Built by caller from analysis
+    )

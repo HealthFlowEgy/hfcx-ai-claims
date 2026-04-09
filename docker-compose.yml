@@ -1,0 +1,284 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HFCX AI Claims Layer — Docker Compose (Local Development)
+#
+# Starts the full AI layer + all infrastructure dependencies.
+# For GPU inference: use docker-compose.gpu.yml override instead.
+#
+# Usage:
+#   docker compose up -d                    # Start all services
+#   docker compose up -d ai-claims          # API only (if infra already running)
+#   docker compose logs -f ai-claims        # Follow AI layer logs
+#   docker compose down -v                  # Stop + remove volumes
+# ─────────────────────────────────────────────────────────────────────────────
+version: "3.9"
+
+networks:
+  hfcx-ai-net:
+    name: hfcx-ai-net
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  chroma_data:
+  minio_data:
+  ollama_models:
+  grafana_data:
+
+services:
+
+  # ── PostgreSQL 15 ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: hfcx-ai-postgres
+    networks: [hfcx-ai-net]
+    environment:
+      POSTGRES_DB: hfcx_ai
+      POSTGRES_USER: hfcx_ai
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hfcx_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis 7 ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hfcx-ai-redis
+    networks: [hfcx-ai-net]
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Kafka (Redpanda — Kafka-compatible, no Zookeeper) ─────────────────────
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: hfcx-ai-kafka
+    networks: [hfcx-ai-net]
+    command:
+      - redpanda start
+      - --smp 2
+      - --memory 2G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+      - --schema-registry-addr http://0.0.0.0:8081
+    volumes:
+      - kafka_data:/var/lib/redpanda/data
+    ports:
+      - "9092:9092"
+      - "8081:8081"   # Schema registry
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Create Kafka topics on startup
+  kafka-setup:
+    image: redpandadata/redpanda:latest
+    container_name: hfcx-kafka-setup
+    networks: [hfcx-ai-net]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: >
+      bash -c "
+        rpk topic create hcx.claims.validated --partitions 6 --replicas 1 &&
+        rpk topic create hcx.claims.enriched --partitions 6 --replicas 1 &&
+        rpk topic create hcx.claims.ai.dlq --partitions 3 --replicas 1 &&
+        echo 'Kafka topics created successfully'
+      "
+    restart: "no"
+
+  # ── ChromaDB (vector store for RAG) ───────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: hfcx-ai-chromadb
+    networks: [hfcx-ai-net]
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO (object storage for model weights + documents) ──────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: hfcx-ai-minio
+    networks: [hfcx-ai-net]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"   # MinIO console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Ollama (LLM inference — CPU mode for dev, GPU in production) ──────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hfcx-ai-ollama
+    networks: [hfcx-ai-net]
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    # To pull models: docker exec hfcx-ai-ollama ollama pull qwen3:7b
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── LiteLLM Proxy ──────────────────────────────────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: hfcx-ai-litellm
+    networks: [hfcx-ai-net]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: --config /config/litellm_config.yaml --port 4000
+    volumes:
+      - ./config:/config:ro
+    environment:
+      LITELLM_MASTER_KEY: sk-internal-hfcx
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── HFCX AI Claims — FastAPI Application ──────────────────────────────────
+  ai-claims:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hfcx-ai-claims
+    networks: [hfcx-ai-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hfcx_ai:password@postgres:5432/hfcx_ai
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      LITELLM_BASE_URL: http://litellm:4000
+      MINIO_ENDPOINT: minio:9000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      APP_ENV: development
+      SECRET_KEY: dev-secret-key-change-in-production-32c
+      KEYCLOAK_CLIENT_SECRET: dev-secret
+    ports:
+      - "8090:8090"
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8090 --reload
+    volumes:
+      - .:/app
+    working_dir: /app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/internal/ai/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Kafka Consumer (separate process) ─────────────────────────────────────
+  ai-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hfcx-ai-consumer
+    networks: [hfcx-ai-net]
+    depends_on:
+      ai-claims:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hfcx_ai:password@postgres:5432/hfcx_ai
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      CHROMA_HOST: chromadb
+      LITELLM_BASE_URL: http://litellm:4000
+      APP_ENV: development
+      SECRET_KEY: dev-secret-key-change-in-production-32c
+      KEYCLOAK_CLIENT_SECRET: dev-secret
+    command: python -m src.kafka.consumer
+    volumes:
+      - .:/app
+    working_dir: /app
+    restart: on-failure
+
+  # ── Observability Stack ───────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: hfcx-ai-jaeger
+    networks: [hfcx-ai-net]
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hfcx-ai-prometheus
+    networks: [hfcx-ai-net]
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hfcx-ai-grafana
+    networks: [hfcx-ai-net]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: hfcx-admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3001
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"

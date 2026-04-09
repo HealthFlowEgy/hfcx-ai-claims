@@ -1,0 +1,261 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Kubernetes manifests for HFCX AI Claims Layer (SRS Section 10)
+# Deploys in hcx-ai namespace alongside existing hcx namespace
+#
+# Apply: kubectl apply -f k8s/
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hcx-ai
+  labels:
+    app.kubernetes.io/part-of: hfcx-platform
+    app.kubernetes.io/managed-by: argocd
+
+---
+# ── ConfigMap — non-secret configuration ─────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hfcx-ai-config
+  namespace: hcx-ai
+data:
+  APP_ENV: "production"
+  APP_NAME: "hfcx-ai-claims"
+  LOG_LEVEL: "INFO"
+  HOST: "0.0.0.0"
+  PORT: "8090"
+  WORKERS: "4"
+  KAFKA_TOPIC_CLAIMS_VALIDATED: "hcx.claims.validated"
+  KAFKA_TOPIC_CLAIMS_ENRICHED: "hcx.claims.enriched"
+  KAFKA_TOPIC_DLQ: "hcx.claims.ai.dlq"
+  KAFKA_CONSUMER_GROUP: "hfcx-ai-claims-group"
+  REDIS_ELIGIBILITY_TTL_SECONDS: "3600"
+  REDIS_AGENT_STATE_TTL_SECONDS: "86400"
+  CHROMA_PORT: "8000"
+  LITELLM_TIMEOUT_SECONDS: "30"
+  LITELLM_MAX_RETRIES: "3"
+  ENABLE_FRAUD_AGENT: "true"
+  ENABLE_CODING_AGENT: "true"
+  ENABLE_ELIGIBILITY_AGENT: "true"
+  ENABLE_NECESSITY_AGENT: "true"
+  ENABLE_ARABIC_NLP: "true"
+  AI_BYPASS_ON_FAILURE: "true"
+  OTEL_SERVICE_NAME: "hfcx-ai-claims"
+
+---
+# ── AI Claims API Deployment ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hfcx-ai-claims-api
+  namespace: hcx-ai
+  labels:
+    app: hfcx-ai-claims-api
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hfcx-ai-claims-api
+  template:
+    metadata:
+      labels:
+        app: hfcx-ai-claims-api
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+        prometheus.io/path: "/internal/ai/metrics"
+    spec:
+      serviceAccountName: hfcx-ai-sa
+      containers:
+        - name: api
+          image: healthflow/hfcx-ai-claims:1.0.0
+          ports:
+            - containerPort: 8090
+          command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "4"]
+          envFrom:
+            - configMapRef:
+                name: hfcx-ai-config
+            - secretRef:
+                name: hfcx-ai-secrets
+          livenessProbe:
+            httpGet:
+              path: /internal/ai/health
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /internal/ai/health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+---
+# ── Kafka Consumer Deployment ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hfcx-ai-consumer
+  namespace: hcx-ai
+  labels:
+    app: hfcx-ai-consumer
+    component: consumer
+spec:
+  replicas: 3                   # One consumer per Kafka partition group
+  selector:
+    matchLabels:
+      app: hfcx-ai-consumer
+  template:
+    metadata:
+      labels:
+        app: hfcx-ai-consumer
+        component: consumer
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8091"
+    spec:
+      serviceAccountName: hfcx-ai-sa
+      containers:
+        - name: consumer
+          image: healthflow/hfcx-ai-claims:1.0.0
+          command: ["python", "-m", "src.kafka.consumer"]
+          envFrom:
+            - configMapRef:
+                name: hfcx-ai-config
+            - secretRef:
+                name: hfcx-ai-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: hfcx-ai-claims-api
+  namespace: hcx-ai
+  labels:
+    app: hfcx-ai-claims-api
+spec:
+  selector:
+    app: hfcx-ai-claims-api
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090
+  type: ClusterIP               # Internal only — not exposed via Ingress (SEC-001)
+
+---
+# ── HPA — Coordinator / API (SRS NFR-002: 3-10 pods at 70% CPU) ──────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hfcx-ai-claims-api-hpa
+  namespace: hcx-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hfcx-ai-claims-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# ── HPA — Kafka Consumer (scale with consumer lag) ────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hfcx-ai-consumer-hpa
+  namespace: hcx-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hfcx-ai-consumer
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hfcx-ai-sa
+  namespace: hcx-ai
+
+---
+# ── NetworkPolicy — restrict ingress to hcx namespace only (SEC-001) ─────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hfcx-ai-network-policy
+  namespace: hcx-ai
+spec:
+  podSelector:
+    matchLabels:
+      app: hfcx-ai-claims-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only allow traffic from hcx namespace (hcx-pipeline-jobs)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hcx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8090
+  egress:
+    # Allow outbound to databases, Kafka, ChromaDB, LiteLLM
+    - to:
+        - namespaceSelector: {}   # All namespaces (databases may be external)
+      ports:
+        - port: 5432   # PostgreSQL
+        - port: 6379   # Redis
+        - port: 9092   # Kafka
+        - port: 8000   # ChromaDB
+        - port: 4000   # LiteLLM
+        - port: 8080   # Keycloak
+        - port: 4317   # OTEL
