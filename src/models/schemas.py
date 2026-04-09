@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 # Enumerations
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ClaimType(str, Enum):
+class ClaimType(StrEnum):
     OUTPATIENT = "outpatient"
     INPATIENT = "inpatient"
     PHARMACY = "pharmacy"
@@ -24,14 +24,14 @@ class ClaimType(str, Enum):
     VISION = "vision"
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -39,21 +39,21 @@ class AgentStatus(str, Enum):
     BYPASSED = "bypassed"
 
 
-class AdjudicationDecision(str, Enum):
+class AdjudicationDecision(StrEnum):
     APPROVED = "approved"
     DENIED = "denied"
     PENDED = "pended"           # Requires human review
     PARTIAL = "partial"         # Partially approved
 
 
-class AIRecommendation(str, Enum):
+class AIRecommendation(StrEnum):
     """SRS 5.1: recommendation ENUM(approve, deny, investigate)."""
     APPROVE = "approve"
     DENY = "deny"
     INVESTIGATE = "investigate"
 
 
-class MemoryPatternType(str, Enum):
+class MemoryPatternType(StrEnum):
     """SRS 5.2: pattern_type ENUM."""
     FRAUD_SIGNAL = "fraud_signal"
     CODING_ERROR = "coding_error"

@@ -5,8 +5,9 @@ Validates ICD-10 diagnosis codes and procedure codes against:
   - Fine-tuned Llama 8B (ICD-10 validation, 97% exact match)
   - Arabic-capable LLM (BiMediX/Qwen3) for clinical NER on Arabic notes
   - NDP (National Drug Platform) — FR-MC-003 pharmacy prescription cross-reference
+  - HAPI FHIR terminology server — SRS §2.3 authoritative ICD-10 validation
 
-Tools: LiteLLM (MIT), NDP internal REST API
+Tools: LiteLLM (MIT), NDP internal REST API, HAPI FHIR Server
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from src.models.schemas import (
     CodingValidationResult,
     FHIRClaimBundle,
 )
+from src.services.hapi_fhir_service import HAPIFHIRService
 from src.services.llm_service import LLMService
 from src.services.ndp_service import NDPService
 from src.utils.metrics import AGENT_LATENCY
@@ -49,6 +51,7 @@ class MedicalCodingAgent:
     def __init__(self) -> None:
         self._llm = LLMService()
         self._ndp = NDPService()
+        self._hapi = HAPIFHIRService()
 
     async def validate(self, claim: FHIRClaimBundle) -> CodingValidationResult:
         with AGENT_LATENCY.labels(agent="medical_coding").time():
@@ -103,6 +106,35 @@ class MedicalCodingAgent:
                         )
             procedure_validations = llm_result.get("procedure_validations", [])
             suggested_corrections = llm_result.get("suggested_corrections", [])
+
+        # 3b. SRS §2.3 — HAPI FHIR terminology server authoritative check.
+        # We upgrade semantic confidence when HAPI confirms, and flag codes
+        # that the LLM thought valid but HAPI rejects as a correction.
+        if claim.diagnosis_codes and settings.hapi_fhir_enabled:
+            hapi_results = await self._hapi.validate_icd10_batch(
+                claim.diagnosis_codes
+            )
+            for v in icd10_validations:
+                hapi = hapi_results.get(v["code"])
+                if hapi is None or hapi.get("skipped"):
+                    continue
+                v["hapi_valid"] = hapi.get("valid")
+                if hapi.get("display"):
+                    v["description"] = v.get("description") or hapi["display"]
+                # Disagreement → LLM said valid but HAPI rejected.
+                if v.get("semantic_valid") is True and hapi.get("valid") is False:
+                    v["semantic_valid"] = False
+                    suggested_corrections.append(
+                        {
+                            "original": v["code"],
+                            "suggested": None,
+                            "reason": (
+                                "Not present in HAPI FHIR terminology server "
+                                "(ICD-10 CodeSystem)"
+                            ),
+                            "source": "hapi_fhir",
+                        }
+                    )
 
         # 4. Aggregate decision
         format_ok = all(v["format_valid"] for v in icd10_validations)

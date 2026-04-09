@@ -18,7 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from src.config import get_settings
 from src.models.schemas import AgentStatus, ClaimType, EligibilityResult, FHIRClaimBundle
 from src.services.circuit_breaker import REGISTRY_BREAKER, call_async_breaker
-from src.services.redis_service import RedisService
+from src.services.redis_service import RedisService, _await_redis
 from src.utils.metrics import AGENT_LATENCY
 
 log = structlog.get_logger(__name__)
@@ -102,13 +102,13 @@ class EligibilityAgent:
         )
         # Maintain prefix index so invalidate_cache can find this key later.
         try:
-            await self._redis.client.sadd(
+            await _await_redis(self._redis.client.sadd(
                 self._index_key(claim.patient_id, claim.payer_id), cache_key
-            )
-            await self._redis.client.expire(
+            ))
+            await _await_redis(self._redis.client.expire(
                 self._index_key(claim.patient_id, claim.payer_id),
                 settings.redis_eligibility_ttl_seconds,
-            )
+            ))
         except Exception:
             pass
 
@@ -190,7 +190,7 @@ class EligibilityAgent:
         """
         idx = self._index_key(patient_id, payer_id)
         try:
-            keys = await self._redis.client.smembers(idx)
+            keys = await _await_redis(self._redis.client.smembers(idx))
         except Exception:
             keys = set()
 

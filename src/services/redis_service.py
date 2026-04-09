@@ -8,8 +8,9 @@ Used for: eligibility cache, agent state checkpointing, fraud provider scores,
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar, cast
 
 import redis.asyncio as redis
 import structlog
@@ -23,6 +24,18 @@ from src.utils.metrics import MEMORY_STORE_OPS
 
 log = structlog.get_logger(__name__)
 settings = get_settings()
+
+_T = TypeVar("_T")
+
+
+def _await_redis(value: Any) -> Awaitable[Any]:
+    """
+    ``redis.asyncio.Redis`` method return types are overloaded with a sync
+    branch via `ResponseT = Union[Awaitable[T], T]`, which confuses mypy
+    in pure-async contexts. This thin cast hides the union and lets the
+    rest of the module use straight ``await`` without per-call noqa.
+    """
+    return cast(Awaitable[Any], value)
 
 _redis_pool: redis.ConnectionPool | None = None
 
@@ -113,7 +126,7 @@ class RedisService:
 
     async def ping(self) -> bool:
         try:
-            return bool(await self._client.ping())
+            return bool(await _await_redis(self._client.ping()))
         except Exception:
             return False
 

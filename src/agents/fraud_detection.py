@@ -19,9 +19,11 @@ persisted to MinIO (SEC-004) and hydrated at startup — see MODEL_BUCKET.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import networkx as nx
 import numpy as np
@@ -40,7 +42,8 @@ from src.models.schemas import (
 )
 from src.services.audit_service import AuditService
 from src.services.llm_service import LLMService
-from src.services.redis_service import RedisService
+from src.services.model_store import ModelStoreError, fetch_to_local
+from src.services.redis_service import RedisService, _await_redis
 from src.utils.metrics import AGENT_LATENCY
 
 log = structlog.get_logger(__name__)
@@ -76,14 +79,36 @@ class FraudDetectionAgent:
       Phase 2 (after 3 months of labeled data): +XGBoost supervised classifier.
     """
 
+    # Process-wide fitted-model state (singletons).
     _FITTED: bool = False
     _IFOREST: IForest | None = None
     _LOF: LOF | None = None
     _HBOS: HBOS | None = None
+    # Lazy-init lock — concurrent first-call coroutines would otherwise both
+    # race into _ensure_fitted() and fit the detectors twice.
+    _FIT_LOCK: asyncio.Lock | None = None
+
+    # XGBoost supervised model (Phase 2). Hydrated lazily from MinIO via
+    # services.model_store; stays None until a model URI is configured.
+    _XGB_MODEL: Any | None = None
+    _XGB_LOADED: bool = False
+    _XGB_LOCK: asyncio.Lock | None = None
 
     def __init__(self) -> None:
         self._redis = RedisService()
         self._llm = LLMService()
+
+    @classmethod
+    def _get_fit_lock(cls) -> asyncio.Lock:
+        if cls._FIT_LOCK is None:
+            cls._FIT_LOCK = asyncio.Lock()
+        return cls._FIT_LOCK
+
+    @classmethod
+    def _get_xgb_lock(cls) -> asyncio.Lock:
+        if cls._XGB_LOCK is None:
+            cls._XGB_LOCK = asyncio.Lock()
+        return cls._XGB_LOCK
 
     # ── Public entry point ────────────────────────────────────────────────
     async def score(self, claim: FHIRClaimBundle) -> FraudDetectionResult:
@@ -106,11 +131,36 @@ class FraudDetectionAgent:
                 drug_codes=claim.drug_codes,
             )
 
-            # Weighted ensemble
+            # FR-FD-001 Phase 2: XGBoost supervised classifier. Enabled only
+            # once a trained model artifact exists (configured via
+            # XGBOOST_MODEL_URI). Until then this returns None and the
+            # rule + unsupervised ensemble carries the load.
+            xgb_score = await self._xgboost_score(features)
+            if xgb_score is not None:
+                per_detector["xgboost"] = xgb_score
+
+            # Weighted ensemble. When XGBoost is available we blend it in
+            # at `settings.xgboost_blend_weight` and proportionally reduce
+            # the PyOD ensemble weight so the total always sums to 1.
             rule_score = min(len(rule_flags) * 0.15, 0.9)
-            final_score = (
-                (rule_score * 0.30) + (ensemble_score * 0.50) + (network_score * 0.20)
-            )
+            if xgb_score is not None:
+                w_xgb = settings.xgboost_blend_weight
+                w_ens = 0.50 * (1 - w_xgb / 0.70)  # keep rule=0.30, net=0.20
+                w_ens = max(w_ens, 0.10)
+                w_rule = 0.30
+                w_net = 0.20
+                final_score = (
+                    rule_score * w_rule
+                    + ensemble_score * w_ens
+                    + xgb_score * w_xgb
+                    + network_score * w_net
+                )
+            else:
+                final_score = (
+                    (rule_score * 0.30)
+                    + (ensemble_score * 0.50)
+                    + (network_score * 0.20)
+                )
             final_score = round(min(final_score, 1.0), 4)
 
             risk_level = self._classify_risk(final_score)
@@ -390,55 +440,136 @@ class FraudDetectionAgent:
         return round(float(ensemble), 4), per
 
     async def _ensure_fitted(self) -> None:
+        # Fast path: already fitted, no lock needed
         if FraudDetectionAgent._FITTED:
             return
 
-        # Seed baseline from Redis — keyed set of recent feature vectors.
-        baseline: list[list[float]] = []
-        try:
-            raw_list = await self._redis.client.lrange(
-                "fraud:baseline:features", 0, 999
+        # Slow path: serialize through the class-level lock so two cold-start
+        # coroutines cannot both fit the detectors in parallel.
+        async with self._get_fit_lock():
+            # Double-checked locking: another coroutine may have raced us.
+            if FraudDetectionAgent._FITTED:
+                return
+
+            # Seed baseline from Redis — keyed list of recent feature vectors.
+            baseline: list[list[float]] = []
+            try:
+                raw_list = await _await_redis(self._redis.client.lrange(
+                    "fraud:baseline:features", 0, 999
+                ))
+                for item in raw_list:
+                    try:
+                        baseline.append(json.loads(item))
+                    except Exception:
+                        continue
+            except Exception as exc:
+                log.debug("fraud_baseline_unavailable", error=str(exc))
+
+            # Cold start: generate a small synthetic baseline so PyOD can fit.
+            if len(baseline) < 50:
+                rng = np.random.default_rng(42)
+                synthetic = rng.normal(
+                    loc=[
+                        3000, 2, 1, 1, 1, 1, 0, 3, 30, 2, 0, 10, 1500, 3000, 0, 16,
+                    ],
+                    scale=[
+                        1500, 1, 1, 1, 1, 0.3, 0.3, 2, 20, 1, 0.3, 4, 1000, 2000, 2, 16,
+                    ],
+                    size=(200, 16),
+                ).astype(np.float32)
+                data = synthetic
+            else:
+                data = np.array(baseline, dtype=np.float32)
+
+            contamination = settings.fraud_isolation_forest_contamination
+            FraudDetectionAgent._IFOREST = IForest(
+                contamination=contamination, random_state=42, n_estimators=100
             )
-            for item in raw_list:
-                try:
-                    baseline.append(json.loads(item))
-                except Exception:
-                    continue
-        except Exception as exc:
-            log.debug("fraud_baseline_unavailable", error=str(exc))
+            FraudDetectionAgent._LOF = LOF(
+                contamination=contamination, n_neighbors=20
+            )
+            FraudDetectionAgent._HBOS = HBOS(contamination=contamination)
+            try:
+                FraudDetectionAgent._IFOREST.fit(data)
+                FraudDetectionAgent._LOF.fit(data)
+                FraudDetectionAgent._HBOS.fit(data)
+                FraudDetectionAgent._FITTED = True
+                log.info("fraud_ensemble_fitted", samples=int(data.shape[0]))
+            except Exception as exc:  # pragma: no cover
+                log.warning("fraud_fit_failed", error=str(exc))
 
-        # Cold start: generate a small synthetic baseline so PyOD can fit.
-        if len(baseline) < 50:
-            rng = np.random.default_rng(42)
-            synthetic = rng.normal(
-                loc=[
-                    3000, 2, 1, 1, 1, 1, 0, 3, 30, 2, 0, 10, 1500, 3000, 0, 16,
-                ],
-                scale=[
-                    1500, 1, 1, 1, 1, 0.3, 0.3, 2, 20, 1, 0.3, 4, 1000, 2000, 2, 16,
-                ],
-                size=(200, 16),
-            ).astype(np.float32)
-            data = synthetic
-        else:
-            data = np.array(baseline, dtype=np.float32)
+    # ── FR-FD-001 Phase 2: XGBoost supervised classifier ────────────────
+    async def _xgboost_score(self, features: np.ndarray) -> float | None:
+        """
+        Score the claim with the supervised XGBoost fraud classifier.
+        Returns None when XGBoost is not enabled or no model is loaded —
+        in that case the unsupervised ensemble carries the full load.
 
-        contamination = settings.fraud_isolation_forest_contamination
-        FraudDetectionAgent._IFOREST = IForest(
-            contamination=contamination, random_state=42, n_estimators=100
-        )
-        FraudDetectionAgent._LOF = LOF(contamination=contamination, n_neighbors=20)
-        FraudDetectionAgent._HBOS = HBOS(contamination=contamination)
+        Model loading is lazy + one-shot: fetched from MinIO via
+        services.model_store on first score, then cached on the class.
+        """
+        if not settings.xgboost_enabled:
+            return None
+        if not settings.xgboost_model_uri:
+            return None
+
+        await self._load_xgboost()
+        model = FraudDetectionAgent._XGB_MODEL
+        if model is None:
+            return None
+
         try:
-            FraudDetectionAgent._IFOREST.fit(data)
-            FraudDetectionAgent._LOF.fit(data)
-            FraudDetectionAgent._HBOS.fit(data)
-            FraudDetectionAgent._FITTED = True
-            log.info("fraud_ensemble_fitted", samples=int(data.shape[0]))
-        except Exception as exc:  # pragma: no cover
-            log.warning("fraud_fit_failed", error=str(exc))
+            # xgboost.Booster takes a DMatrix; sklearn-style XGBClassifier
+            # takes a plain ndarray. Support both to keep the artifact
+            # format flexible for the training team.
+            import xgboost as xgb
+
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(features)[:, 1][0]
+            else:
+                dm = xgb.DMatrix(features)
+                proba = float(model.predict(dm)[0])
+            return float(max(0.0, min(1.0, proba)))
+        except Exception as exc:
+            log.warning("xgboost_predict_failed", error=str(exc))
+            return None
+
+    async def _load_xgboost(self) -> None:
+        if FraudDetectionAgent._XGB_LOADED:
+            return
+
+        async with self._get_xgb_lock():
+            if FraudDetectionAgent._XGB_LOADED:
+                return
+            FraudDetectionAgent._XGB_LOADED = True  # set early to avoid retry storms
+
+            try:
+                local = fetch_to_local(settings.xgboost_model_uri)
+            except ModelStoreError as exc:
+                log.warning(
+                    "xgboost_fetch_failed",
+                    uri=settings.xgboost_model_uri,
+                    error=str(exc),
+                )
+                return
+
+            try:
+                import xgboost as xgb
+
+                booster = xgb.Booster()
+                booster.load_model(str(local))
+                FraudDetectionAgent._XGB_MODEL = booster
+                log.info(
+                    "xgboost_model_loaded",
+                    uri=settings.xgboost_model_uri,
+                    local=str(local),
+                )
+            except Exception as exc:  # pragma: no cover
+                log.warning("xgboost_load_failed", error=str(exc))
 
     # ── FR-FD-003: NetworkX provider-patient-pharmacy graph ──────────────
+    _API_PLACEHOLDERS = {"api-check", "synthetic-test", "api-caller"}
+
     async def _network_analysis(
         self,
         provider_id: str,
@@ -455,19 +586,26 @@ class FraudDetectionAgent:
         indicators: list[str] = []
         g = nx.Graph()
 
+        # Direct /internal/ai/agents/* test calls use placeholder IDs. Skip
+        # graph mutation in that path so we never pollute production edges.
+        is_placeholder = (
+            provider_id in self._API_PLACEHOLDERS
+            or patient_id in self._API_PLACEHOLDERS
+        )
+
         # Seed graph with recent edges (bounded)
         try:
-            pp_edges = await self._redis.client.smembers(
+            pp_edges = await _await_redis(self._redis.client.smembers(
                 "fraud:edges:provider_patient"
-            )
+            ))
             for e in list(pp_edges)[:500]:
                 a, b = e.split("|", 1)
                 g.add_edge(f"prov:{a}", f"pat:{b}")
 
             for code in drug_codes[:10]:
-                pharm_edges = await self._redis.client.smembers(
+                pharm_edges = await _await_redis(self._redis.client.smembers(
                     f"fraud:edges:patient_pharmacy:{code}"
-                )
+                ))
                 for e in list(pharm_edges)[:200]:
                     a, b = e.split("|", 1)
                     g.add_edge(f"pat:{a}", f"pharm:{b}")
@@ -478,21 +616,25 @@ class FraudDetectionAgent:
         for code in drug_codes:
             g.add_edge(f"pat:{patient_id}", f"pharm:{code}")
 
-        # Persist the new edge (bounded write)
-        try:
-            await self._redis.client.sadd(
-                "fraud:edges:provider_patient",
-                f"{provider_id}|{patient_id}",
-            )
-            await self._redis.client.expire(
-                "fraud:edges:provider_patient", 86400 * 30
-            )
-            for code in drug_codes:
-                key = f"fraud:edges:patient_pharmacy:{code}"
-                await self._redis.client.sadd(key, f"{patient_id}|{code}")
-                await self._redis.client.expire(key, 86400 * 30)
-        except Exception:
-            pass
+        # Persist the new edge (bounded write) — skipped for placeholder IDs
+        # so direct /internal/ai/agents/* calls never pollute production edges.
+        if not is_placeholder:
+            try:
+                await _await_redis(self._redis.client.sadd(
+                    "fraud:edges:provider_patient",
+                    f"{provider_id}|{patient_id}",
+                ))
+                await _await_redis(self._redis.client.expire(
+                    "fraud:edges:provider_patient", 86400 * 30
+                ))
+                for code in drug_codes:
+                    key = f"fraud:edges:patient_pharmacy:{code}"
+                    await _await_redis(
+                        self._redis.client.sadd(key, f"{patient_id}|{code}")
+                    )
+                    await _await_redis(self._redis.client.expire(key, 86400 * 30))
+            except Exception:
+                pass
 
         network_score = 0.0
 

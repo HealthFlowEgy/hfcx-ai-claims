@@ -24,15 +24,30 @@ settings = get_settings()
 class NDPService:
     """Thin async REST client for the internal NDP service."""
 
+    _shared_client: httpx.AsyncClient | None = None
+
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
-        self._client = client or httpx.AsyncClient(
-            base_url=str(settings.ndp_api_url),
-            timeout=settings.ndp_timeout_seconds,
-            headers={"X-API-Key": settings.ndp_api_key},
-        )
+        self._client = client or self._get_shared_client()
+
+    @classmethod
+    def _get_shared_client(cls) -> httpx.AsyncClient:
+        if cls._shared_client is None:
+            cls._shared_client = httpx.AsyncClient(
+                base_url=str(settings.ndp_api_url),
+                timeout=settings.ndp_timeout_seconds,
+                headers={"X-API-Key": settings.ndp_api_key},
+            )
+        return cls._shared_client
+
+    @classmethod
+    async def close_shared(cls) -> None:
+        if cls._shared_client is not None:
+            await cls._shared_client.aclose()
+            cls._shared_client = None
 
     async def close(self) -> None:
-        await self._client.aclose()
+        # Backwards-compat per-instance close; prefer close_shared() at shutdown.
+        pass
 
     @retry(
         stop=stop_after_attempt(3),

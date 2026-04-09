@@ -261,12 +261,23 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover — audit failures never block claims
         log.warning("audit_write_failed", error=str(exc))
 
+    # SRS 5.1: model_versions JSONB — record every concrete model used so
+    # the claim audit trail can later reproduce the adjudication exactly.
+    model_versions = {
+        "coordinator": settings.litellm_coordinator_model,
+        "coding": settings.litellm_coding_model,
+        "arabic": settings.litellm_arabic_model,
+        "fast": settings.litellm_fast_model,
+        "app_version": settings.app_version,
+    }
+
     return {
         "adjudication_decision": decision,
         "overall_confidence": overall_confidence,
         "requires_human_review": requires_human_review,
         "human_review_reasons": human_review_reasons,
         "completed_at": datetime.now(UTC),
+        "model_versions": model_versions,
     }
 
 
@@ -346,25 +357,36 @@ class CoordinatorAgent:
     compiled graph — see FR-AO-001 latency budget).
     """
 
-    _instance: CoordinatorAgent | None = None
-    _lock: asyncio.Lock = asyncio.Lock()
-
     def __init__(self) -> None:
         self._graph: Any | None = None
         self._exit_stack: AsyncExitStack = AsyncExitStack()
         self._ready: bool = False
+        # Lazy-init: never construct asyncio primitives before the running
+        # event loop exists. Multi-loop test contexts otherwise break.
+        self._lock: asyncio.Lock | None = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def ensure_ready(self) -> None:
         if self._ready:
             return
-        async with self._lock:
+        async with self._get_lock():
             if self._ready:
                 return
-            self._graph = await build_coordinator_graph(
-                str(settings.redis_url), self._exit_stack
-            )
-            self._ready = True
-            log.info("coordinator_graph_ready")
+            try:
+                self._graph = await build_coordinator_graph(
+                    str(settings.redis_url), self._exit_stack
+                )
+                self._ready = True
+                log.info("coordinator_graph_ready")
+            except Exception:
+                # Clean up any partially-entered contexts before re-raising.
+                await self._exit_stack.aclose()
+                self._exit_stack = AsyncExitStack()
+                raise
 
     async def shutdown(self) -> None:
         if self._ready:

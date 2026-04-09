@@ -87,6 +87,7 @@ class ClaimsKafkaConsumer:
 
         await self._consumer.start()
         await self._producer.start()
+        await AuditService.start()
         await self._coordinator.ensure_ready()
         self._running = True
         log.info(
@@ -101,6 +102,7 @@ class ClaimsKafkaConsumer:
             await self._consumer.stop()
         if self._producer:
             await self._producer.stop()
+        await AuditService.stop()
         await shutdown_coordinator()
         log.info("kafka_consumer_stopped")
 

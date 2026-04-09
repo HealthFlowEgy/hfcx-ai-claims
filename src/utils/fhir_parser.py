@@ -4,7 +4,7 @@ Extracts structured fields from raw FHIR JSON for AI agent consumption.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -110,13 +110,25 @@ class FHIRClaimParser:
                     codes.append(code)
         return codes
 
+    # Known drug code systems: EDA formulary, RxNorm, SNOMED medication,
+    # ATC, NDC, plus FHIR's generic "medication" convention.
+    _DRUG_SYSTEM_MARKERS = (
+        "eda.gov.eg",
+        "rxnorm",
+        "medication",
+        "atc",
+        "ndc",
+    )
+
     def _extract_drug_codes(self, claim: dict) -> list[str]:
         """Extract drug/medication codes from Claim.item for pharmacy claims."""
-        codes = []
+        codes: list[str] = []
         for item in claim.get("item", []):
             coding = item.get("productOrService", {}).get("coding", [])
             for c in coding:
-                if c.get("system", "").endswith("medication") and (code := c.get("code")):
+                system = (c.get("system") or "").lower()
+                code = c.get("code")
+                if code and any(marker in system for marker in self._DRUG_SYSTEM_MARKERS):
                     codes.append(code)
         return codes
 
@@ -128,7 +140,7 @@ class FHIRClaimParser:
         for item in claim.get("item", []):
             if service_date := item.get("servicedDate"):
                 return self._parse_datetime(service_date)
-        return datetime.utcnow()
+        return datetime.now(UTC)
 
     def _extract_prescription_id(self, claim: dict) -> str | None:
         for ref in claim.get("prescription", []):
@@ -159,8 +171,8 @@ class FHIRClaimParser:
 
     def _parse_datetime(self, value: str | None) -> datetime:
         if not value:
-            return datetime.utcnow()
+            return datetime.now(UTC)
         try:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            return datetime.utcnow()
+            return datetime.now(UTC)
