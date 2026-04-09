@@ -88,7 +88,12 @@ class Settings(BaseSettings):
     ndp_timeout_seconds: int = 5
 
     # ── CORS ─────────────────────────────────────────────────────────────
-    cors_allow_origins: str = "http://localhost:3000"  # comma-separated
+    # Dev defaults: Next.js local server + Docker network hostname.
+    cors_allow_origins: str = (
+        "http://localhost:3000,"
+        "http://hfcx-frontend:3000,"
+        "http://127.0.0.1:3000"
+    )
 
     # ── MinIO ────────────────────────────────────────────────────────────
     minio_endpoint: str = "localhost:9000"
