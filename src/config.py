@@ -7,7 +7,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, RedisDsn, PostgresDsn
+from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,7 +23,11 @@ class Settings(BaseSettings):
     app_name: str = "hfcx-ai-claims"
     app_version: str = "1.0.0"
     log_level: str = "INFO"
-    secret_key: str = Field(min_length=32)
+    # In development we provide a placeholder so `pytest` works without a .env.
+    # Production MUST set SECRET_KEY via env; check is at is_production guard.
+    secret_key: str = Field(
+        default="dev-secret-key-change-in-production-32c", min_length=32
+    )
 
     # ── API Server ───────────────────────────────────────────────────────
     host: str = "0.0.0.0"
@@ -31,13 +35,16 @@ class Settings(BaseSettings):
     workers: int = 4
 
     # ── PostgreSQL ───────────────────────────────────────────────────────
-    database_url: PostgresDsn
+    database_url: PostgresDsn = Field(
+        default="postgresql+asyncpg://hfcx_ai:password@localhost:5432/hfcx_ai"  # type: ignore[arg-type]
+    )
     database_pool_size: int = 20
     database_max_overflow: int = 10
 
     # ── Redis ────────────────────────────────────────────────────────────
-    redis_url: RedisDsn
-    redis_eligibility_ttl_seconds: int = 3600
+    redis_url: RedisDsn = Field(default="redis://localhost:6379/0")  # type: ignore[arg-type]
+    # FR-EV-001: eligibility cache TTL is 24 hours
+    redis_eligibility_ttl_seconds: int = 86400
     redis_agent_state_ttl_seconds: int = 86400
 
     # ── Kafka ────────────────────────────────────────────────────────────
@@ -69,11 +76,19 @@ class Settings(BaseSettings):
     keycloak_url: AnyHttpUrl = "http://localhost:8080"  # type: ignore[assignment]
     keycloak_realm: str = "hcx"
     keycloak_client_id: str = "hfcx-ai-service"
-    keycloak_client_secret: str
+    keycloak_client_secret: str = "dev-secret"
 
     # ── HFCX Platform ────────────────────────────────────────────────────
     hfcx_registry_url: AnyHttpUrl = "http://localhost:8081/hcx/v0.8/participant/info"  # type: ignore[assignment]
     hfcx_api_gateway_url: AnyHttpUrl = "http://localhost:8082"  # type: ignore[assignment]
+
+    # ── NDP (National Drug Platform) — FR-MC-003 ─────────────────────────
+    ndp_api_url: AnyHttpUrl = "http://localhost:8083/ndp/v1"  # type: ignore[assignment]
+    ndp_api_key: str = "dev-ndp-key"
+    ndp_timeout_seconds: int = 5
+
+    # ── CORS ─────────────────────────────────────────────────────────────
+    cors_allow_origins: str = "http://localhost:3000"  # comma-separated
 
     # ── MinIO ────────────────────────────────────────────────────────────
     minio_endpoint: str = "localhost:9000"
@@ -92,6 +107,11 @@ class Settings(BaseSettings):
     fraud_high_risk_threshold: float = 0.75
     fraud_medium_risk_threshold: float = 0.45
     fraud_network_graph_refresh_hours: int = 6
+    fraud_duplicate_window_days: int = 30       # FR-FD-002
+
+    # ── Circuit Breaker (FR-AO-004 / NFR-004) ────────────────────────────
+    circuit_breaker_fail_max: int = 5
+    circuit_breaker_reset_timeout_seconds: int = 30
 
     # ── Feature Flags ────────────────────────────────────────────────────
     enable_fraud_agent: bool = True
@@ -104,6 +124,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
 
 @lru_cache

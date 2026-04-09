@@ -5,12 +5,15 @@
 # Or via Docker: docker run -p 4000:4000 -v $(pwd)/config:/config \
 #                ghcr.io/berriai/litellm --config /config/litellm_config.yaml
 #
-# Blue-green model updates: change model_name aliases without agent restarts.
+# Blue-green model updates: change the weights on the `coordinator-model`
+# alias entries to shift traffic between model versions. Agents always call
+# `coordinator-model` (see src/services/llm_service.py:COORDINATOR_MODEL_ALIAS)
+# so no agent restart is required.
 # ─────────────────────────────────────────────────────────────────────────────
 
 general_settings:
-  master_key: sk-internal-hfcx        # Matches LITELLM_API_KEY in .env
-  database_url: null                   # Optional: PostgreSQL for usage tracking
+  master_key: sk-internal-hfcx
+  database_url: null
   disable_spend_logs: false
   request_timeout: 30
 
@@ -21,84 +24,60 @@ litellm_settings:
       num_retries: 0
     RateLimitError:
       num_retries: 3
-  telemetry: false                     # Disable external telemetry (NFR-003 data sovereignty)
+  telemetry: false   # Disable external telemetry (NFR-003 data sovereignty)
 
 router_settings:
-  routing_strategy: least-busy         # Load balance across multiple Ollama instances
+  routing_strategy: least-busy
   allowed_fails: 3
   cooldown_time: 10
 
 model_list:
-  # ── Primary reasoning model (MedGemma 27B) — GPU node ──────────────────────
+  # ── Concrete models (one per physical backend) ────────────────────────────
   - model_name: ollama/medgemma:27b
     litellm_params:
       model: ollama/medgemma:27b
-      api_base: http://ollama-gpu:11434   # GPU node Ollama instance
+      api_base: http://ollama-gpu:11434
       timeout: 60
       max_tokens: 2000
-    model_info:
-      mode: chat
-      supports_function_calling: false
 
-  # ── Coding model (Fine-tuned Llama 8B ICD-10) ──────────────────────────────
   - model_name: ollama/llama3:8b-instruct
     litellm_params:
       model: ollama/llama3:8b-instruct
       api_base: http://ollama-cpu-1:11434
       timeout: 30
       max_tokens: 1000
-    model_info:
-      mode: chat
 
-  # ── Arabic medical model (BiMediX 8x7B MoE) ───────────────────────────────
   - model_name: ollama/bimediX:8x7b
     litellm_params:
       model: ollama/bimediX:8x7b
       api_base: http://ollama-gpu:11434
       timeout: 45
       max_tokens: 500
-    model_info:
-      mode: chat
 
-  # ── Fast edge model (Qwen3 7B) — for quick validations ───────────────────
   - model_name: ollama/qwen3:7b
     litellm_params:
       model: ollama/qwen3:7b
       api_base: http://ollama-cpu-2:11434
       timeout: 20
       max_tokens: 500
-    model_info:
-      mode: chat
 
-  # ── Embedding model (for ChromaDB ingestion) ──────────────────────────────
   - model_name: ollama/nomic-embed-text
     litellm_params:
       model: ollama/nomic-embed-text
       api_base: http://ollama-cpu-1:11434
       timeout: 10
-    model_info:
-      mode: embedding
 
-  # ── Blue-green alias: route 100% traffic to v1, gradually shift to v2 ─────
-  # (NFR-005: zero-downtime model updates)
-  # To shift traffic: change weights from [100, 0] to [80, 20] etc.
-  - model_name: coordinator-model          # Used by agents as abstract alias
+  # ── Blue-green alias (NFR-005): agents call `coordinator-model` ───────────
+  # All entries with model_name=coordinator-model form a weighted pool.
+  # Shift traffic by editing weights — LiteLLM hot-reloads this file.
+  - model_name: coordinator-model
     litellm_params:
       model: ollama/medgemma:27b
       api_base: http://ollama-gpu:11434
       weight: 100
-  # - model_name: coordinator-model        # v2 — uncomment to start blue-green
+  # Uncomment and adjust weights to start a v2 rollout:
+  # - model_name: coordinator-model
   #   litellm_params:
   #     model: ollama/medgemma:27b-v2
   #     api_base: http://ollama-gpu-2:11434
   #     weight: 0
-
-# ── Rate limits per model ──────────────────────────────────────────────────
-# Prevents GPU overload during claim processing spikes
-model_group_settings:
-  ollama/medgemma:27b:
-    rpm: 30                              # 30 requests per minute per GPU node
-  ollama/llama3:8b-instruct:
-    rpm: 60
-  ollama/bimediX:8x7b:
-    rpm: 20

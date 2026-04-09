@@ -5,6 +5,7 @@ GET  /internal/ai/memory/context/{agent}
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+
 from src.api.middleware import verify_service_jwt
 from src.models.schemas import MemoryStoreRequest
 from src.services.redis_service import AgentMemoryService
@@ -22,6 +23,9 @@ async def store_memory(
         agent_name=req.agent_name,
         pattern_key=req.pattern_key,
         pattern_value=req.pattern_value,
+        pattern_type=req.pattern_type,
+        confidence=req.confidence,
+        claim_id=req.claim_id,
         ttl_seconds=req.ttl_seconds,
     )
     return {"stored": ok, "agent": req.agent_name, "key": req.pattern_key}

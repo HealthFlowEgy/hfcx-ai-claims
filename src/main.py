@@ -28,11 +28,17 @@ from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 
+from src.agents.coordinator import get_coordinator, shutdown_coordinator
+from src.agents.eligibility import EligibilityAgent
 from src.api.routes.agents import router as agents_router
 from src.api.routes.coordinator import router as coordinator_router
 from src.api.routes.health import router as health_router
+from src.api.routes.llm import router as llm_router
 from src.api.routes.memory import router as memory_router
 from src.config import get_settings
+from src.models.orm import dispose_engine
+from src.services.llm_service import LLMService
+from src.services.redis_service import close_redis_pool
 from src.utils.logging import configure_logging
 from src.utils.metrics import REQUEST_LATENCY, REQUESTS_TOTAL
 
@@ -43,8 +49,21 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.log_level)
-    log.info("hfcx_ai_starting", version=settings.app_version, env=settings.app_env)
+    log.info(
+        "hfcx_ai_starting", version=settings.app_version, env=settings.app_env
+    )
+    # Prime the coordinator graph (async) so the first request is not slow.
+    try:
+        await get_coordinator().ensure_ready()
+    except Exception as exc:  # pragma: no cover — tolerate missing Redis in dev
+        log.warning("coordinator_init_failed", error=str(exc))
     yield
+    # Shutdown: close shared HTTP clients, engine, redis pool, coordinator.
+    await shutdown_coordinator()
+    await LLMService.close_shared()
+    await EligibilityAgent.close_shared()
+    await close_redis_pool()
+    await dispose_engine()
     log.info("hfcx_ai_shutdown")
 
 
@@ -65,7 +84,7 @@ def create_app() -> FastAPI:
     # ── Middleware ────────────────────────────────────────────────────────
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Next.js portal only
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
@@ -75,13 +94,11 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
         t0 = time.monotonic()
-        correlation_id = request.headers.get("X-HCX-Correlation-ID", "none")
         response = await call_next(request)
         duration = time.monotonic() - t0
 
         REQUEST_LATENCY.labels(
-            method=request.method,
-            path=request.url.path,
+            method=request.method, path=request.url.path
         ).observe(duration)
         REQUESTS_TOTAL.labels(
             method=request.method,
@@ -116,6 +133,7 @@ def create_app() -> FastAPI:
     app.include_router(coordinator_router, prefix="/internal/ai", tags=["Coordinator"])
     app.include_router(agents_router, prefix="/internal/ai/agents", tags=["Agents"])
     app.include_router(memory_router, prefix="/internal/ai/memory", tags=["Memory"])
+    app.include_router(llm_router, prefix="/internal/ai/llm", tags=["LLM"])
     app.include_router(health_router, prefix="/internal/ai", tags=["Health"])
 
     # ── Prometheus metrics endpoint ───────────────────────────────────────
@@ -123,7 +141,10 @@ def create_app() -> FastAPI:
     app.mount("/internal/ai/metrics", metrics_app)
 
     # ── OpenTelemetry instrumentation ─────────────────────────────────────
-    FastAPIInstrumentor.instrument_app(app)
+    try:
+        FastAPIInstrumentor.instrument_app(app)
+    except Exception as exc:  # pragma: no cover — allow tests without OTEL env
+        log.warning("otel_fastapi_instrument_failed", error=str(exc))
 
     return app
 

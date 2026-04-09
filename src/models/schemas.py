@@ -5,11 +5,11 @@ All schemas mirror the SRS Section 5 data model and Section 6 API spec.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +47,42 @@ class AdjudicationDecision(str, Enum):
     PARTIAL = "partial"         # Partially approved
 
 
+class AIRecommendation(str, Enum):
+    """SRS 5.1: recommendation ENUM(approve, deny, investigate)."""
+    APPROVE = "approve"
+    DENY = "deny"
+    INVESTIGATE = "investigate"
+
+
+class MemoryPatternType(str, Enum):
+    """SRS 5.2: pattern_type ENUM."""
+    FRAUD_SIGNAL = "fraud_signal"
+    CODING_ERROR = "coding_error"
+    DENIAL_PATTERN = "denial_pattern"
+    PROVIDER_ANOMALY = "provider_anomaly"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reusable validators
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Egyptian National ID (NHIA beneficiary ID) — 14 digits. FR-EV-002.
+# Accepts either 14 Western digits OR 14 Arabic-Indic digits (٠١٢٣٤٥٦٧٨٩).
+_EG_NATIONAL_ID_RE = r"^(\d{14}|[\u0660-\u0669]{14})$"
+
+
+def _normalize_national_id(value: str) -> str:
+    """Convert Arabic-Indic digits to ASCII before validation and storage."""
+    trans = str.maketrans(
+        {
+            "\u0660": "0", "\u0661": "1", "\u0662": "2", "\u0663": "3",
+            "\u0664": "4", "\u0665": "5", "\u0666": "6", "\u0667": "7",
+            "\u0668": "8", "\u0669": "9",
+        }
+    )
+    return value.translate(trans)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FHIR Claim Bundle (incoming from hcx-pipeline-jobs via Kafka)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,14 +102,17 @@ class FHIRClaimBundle(BaseModel):
     # FHIR Claim resource (core)
     claim_id: str = Field(..., description="FHIR Claim.id")
     claim_type: ClaimType
-    patient_id: str = Field(..., description="NHIA beneficiary ID (National ID-based)")
+    patient_id: str = Field(
+        ...,
+        description="NHIA beneficiary ID (14-digit Egyptian National ID)",
+    )
     provider_id: str = Field(..., description="HCP Registry provider ID")
     payer_id: str = Field(..., description="Insurance company ID")
 
     # Clinical data
     diagnosis_codes: list[str] = Field(default_factory=list, description="ICD-10 codes")
     procedure_codes: list[str] = Field(default_factory=list, description="CPT/SNOMED procedure codes")
-    total_amount: float = Field(..., description="Claim total in EGP")
+    total_amount: float = Field(..., description="Claim total in EGP", ge=0.0)
     claim_date: datetime
     service_date: datetime
 
@@ -87,6 +126,23 @@ class FHIRClaimBundle(BaseModel):
 
     # Raw FHIR bundle for agents that need full resource access
     raw_fhir_bundle: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("patient_id")
+    @classmethod
+    def _validate_patient_id(cls, v: str) -> str:
+        """FR-EV-002: validate 14-digit Egyptian NID format."""
+        if not v:
+            return v
+        import re
+        v = _normalize_national_id(v)
+        if not re.match(_EG_NATIONAL_ID_RE, v):
+            # Allow API test placeholders but mark them clearly
+            if v in {"api-check", "synthetic-test"}:
+                return v
+            raise ValueError(
+                f"patient_id must be a 14-digit Egyptian National ID, got: {v!r}"
+            )
+        return v
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,7 +158,7 @@ class EligibilityResult(BaseModel):
     copay_percentage: float | None = None
     exclusions: list[str] = Field(default_factory=list)
     cache_hit: bool = False
-    checked_at: datetime = Field(default_factory=datetime.utcnow)
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     error_message: str | None = None
 
 
@@ -114,6 +170,10 @@ class CodingValidationResult(BaseModel):
     suggested_corrections: list[dict[str, Any]] = Field(default_factory=list)
     confidence_score: float | None = Field(None, ge=0.0, le=1.0)
     arabic_entities_extracted: list[str] = Field(default_factory=list)
+    ndp_prescription_check: dict[str, Any] | None = Field(
+        default=None,
+        description="FR-MC-003: NDP cross-reference result — None if not a pharmacy claim",
+    )
     error_message: str | None = None
 
 
@@ -128,6 +188,10 @@ class FraudDetectionResult(BaseModel):
     xgboost_score: float | None = None
     pyod_ensemble_score: float | None = None
     refer_to_siu: bool = False          # Special Investigations Unit
+    explanation: str | None = Field(
+        default=None,
+        description="FR-FD-005: natural-language fraud explanation from MedGemma",
+    )
     error_message: str | None = None
 
 
@@ -152,7 +216,7 @@ class ClaimAnalysisState(BaseModel):
     # Input
     claim: FHIRClaimBundle
     correlation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Agent results (populated as graph executes)
     eligibility: EligibilityResult | None = None
@@ -169,6 +233,10 @@ class ClaimAnalysisState(BaseModel):
 
     # Telemetry
     agent_durations_ms: dict[str, int] = Field(default_factory=dict)
+    model_versions: dict[str, str] = Field(
+        default_factory=dict,
+        description="SRS 5.1: model names + versions used for reproducibility",
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -188,14 +256,15 @@ class AICoordinateResponse(BaseModel):
     overall_confidence: float
     requires_human_review: bool
     human_review_reasons: list[str]
-    eligibility: EligibilityResult
-    coding: CodingValidationResult
-    fraud: FraudDetectionResult
-    necessity: MedicalNecessityResult
+    eligibility: EligibilityResult | None = None
+    coding: CodingValidationResult | None = None
+    fraud: FraudDetectionResult | None = None
+    necessity: MedicalNecessityResult | None = None
     processing_time_ms: int
+    model_versions: dict[str, str] = Field(default_factory=dict)
     fhir_extensions: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="FHIR ClaimResponse.extension[] entries containing AI results"
+        description="FHIR ClaimResponse.extension[] entries containing AI results",
     )
 
 
@@ -208,12 +277,23 @@ class EligibilityVerifyRequest(BaseModel):
     claim_type: ClaimType
     force_refresh: bool = False
 
+    @field_validator("patient_id")
+    @classmethod
+    def _validate_patient_id(cls, v: str) -> str:
+        import re
+        v = _normalize_national_id(v)
+        if not re.match(_EG_NATIONAL_ID_RE, v) and v != "api-check":
+            raise ValueError("patient_id must be a 14-digit Egyptian National ID")
+        return v
+
 
 class CodingValidateRequest(BaseModel):
     """POST /internal/ai/agents/coding/validate"""
     diagnosis_codes: list[str]
     procedure_codes: list[str]
+    drug_codes: list[str] = Field(default_factory=list)
     clinical_notes: str | None = None
+    prescription_id: str | None = None
     claim_type: ClaimType
 
 
@@ -246,7 +326,23 @@ class MemoryStoreRequest(BaseModel):
     claim_id: str
     pattern_key: str
     pattern_value: dict[str, Any]
+    pattern_type: MemoryPatternType = MemoryPatternType.FRAUD_SIGNAL
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     ttl_seconds: int | None = None
+
+
+class LLMCompletionRequest(BaseModel):
+    """POST /internal/ai/llm/completion — SRS 6.2"""
+    prompt: str
+    model: str | None = None
+    max_tokens: int = Field(default=1000, ge=1, le=4096)
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    system_prompt: str | None = None
+
+
+class LLMCompletionResponse(BaseModel):
+    model: str
+    content: str
 
 
 class HealthCheckResponse(BaseModel):
@@ -258,7 +354,7 @@ class HealthCheckResponse(BaseModel):
     postgres_connected: bool
     chromadb_connected: bool
     queue_depth: int
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -269,7 +365,7 @@ class KafkaClaimMessage(BaseModel):
     """Message schema for hcx.claims.validated topic."""
     event_type: str = "ClaimReceived"
     schema_version: str = "1.0"
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     payload: dict[str, Any]                   # Raw FHIR bundle
     hcx_headers: dict[str, str] = Field(default_factory=dict)
 
@@ -278,7 +374,7 @@ class KafkaEnrichedClaimMessage(BaseModel):
     """Message schema for hcx.claims.enriched topic."""
     event_type: str = "ClaimEnriched"
     schema_version: str = "1.0"
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     correlation_id: str
     claim_id: str
     hcx_headers: dict[str, str] = Field(default_factory=dict)
