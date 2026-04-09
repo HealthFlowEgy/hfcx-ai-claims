@@ -245,6 +245,23 @@ services:
     working_dir: /app
     restart: on-failure
 
+  # ── Frontend Portals (Next.js) ────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hfcx-frontend
+    networks: [hfcx-ai-net]
+    depends_on:
+      ai-claims:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_API_BASE_URL: http://ai-claims:8090
+    ports:
+      - "3000:3000"
+
   # ── Observability Stack ───────────────────────────────────────────────────
   jaeger:
     image: jaegertracing/all-in-one:latest

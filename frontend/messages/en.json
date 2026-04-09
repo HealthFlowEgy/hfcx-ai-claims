@@ -1,0 +1,273 @@
+{
+  "brand": {
+    "name": "HealthFlow HCX",
+    "tagline": "Egypt's AI-Powered Claims Exchange Platform"
+  },
+  "common": {
+    "login": "Log in",
+    "logout": "Log out",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "save": "Save",
+    "cancel": "Cancel",
+    "submit": "Submit",
+    "loading": "Loading…",
+    "noData": "No data",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "confirm": "Confirm",
+    "actions": "Actions",
+    "viewDetails": "View details",
+    "viewAsTable": "View as table",
+    "total": "Total",
+    "date": "Date",
+    "amount": "Amount",
+    "status": "Status",
+    "type": "Type",
+    "language": "Language",
+    "arabic": "العربية",
+    "english": "English",
+    "unauthorized": "Unauthorized",
+    "accessDenied": "Access denied"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "newClaim": "New claim",
+    "eligibility": "Eligibility check",
+    "preAuth": "Pre-authorization",
+    "claims": "Claims",
+    "claimsHistory": "Claims history",
+    "claimsQueue": "Claims queue",
+    "denials": "Denials & appeals",
+    "payments": "Payments",
+    "communications": "Communications",
+    "settings": "Settings",
+    "settledClaims": "Settled claims",
+    "fraudAlerts": "Fraud alerts",
+    "analytics": "Analytics",
+    "flaggedClaims": "Flagged claims",
+    "investigations": "Investigations",
+    "networkAnalysis": "Network analysis",
+    "crossPayerSearch": "Cross-payer search",
+    "reports": "Reports",
+    "marketOverview": "Market overview",
+    "insurers": "Insurers",
+    "geographic": "Geographic analysis",
+    "fraudOversight": "Fraud oversight",
+    "compliance": "Compliance"
+  },
+  "portals": {
+    "title": "Select a portal",
+    "subtitle": "Choose the portal you want to work with",
+    "provider": {
+      "title": "Provider Portal",
+      "description": "Submit claims, verify eligibility, track status, appeal denials"
+    },
+    "payer": {
+      "title": "Payer Dashboard",
+      "description": "Review claims, AI-assisted decisions, performance analytics"
+    },
+    "siu": {
+      "title": "SIU Portal",
+      "description": "Fraud investigations, network analysis, cross-payer search"
+    },
+    "regulatory": {
+      "title": "Regulatory Dashboard",
+      "description": "Market overview, insurer performance, regulatory reports"
+    },
+    "enter": "Enter",
+    "noAccess": "No access"
+  },
+  "status": {
+    "submitted": "Submitted",
+    "in_review": "In review",
+    "ai_analyzed": "AI analyzed",
+    "approved": "Approved",
+    "denied": "Denied",
+    "pended": "Pended",
+    "partial": "Partial approval",
+    "investigating": "Investigating",
+    "settled": "Settled",
+    "voided": "Voided"
+  },
+  "recommendation": {
+    "approve": "Approve",
+    "deny": "Deny",
+    "investigate": "Investigate",
+    "none": "No recommendation"
+  },
+  "risk": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "critical": "Critical",
+    "label": "Risk level",
+    "score": "Risk score",
+    "factors": "Risk factors"
+  },
+  "ai": {
+    "recommendationBadge": "Recommended by AI",
+    "disclaimer": "AI-assisted recommendation. Final decision requires human review.",
+    "confidence": "Confidence",
+    "reasoning": "AI reasoning",
+    "eligibility": "Eligibility",
+    "coding": "Medical coding",
+    "fraud": "Fraud",
+    "necessity": "Medical necessity",
+    "modelVersion": "Model",
+    "processingTime": "Processing time",
+    "unavailable": "AI analysis unavailable",
+    "unavailableHint": "The claim is being processed by a human reviewer."
+  },
+  "claim": {
+    "id": "Claim ID",
+    "patientNid": "Patient NID",
+    "providerId": "Provider ID",
+    "payer": "Payer",
+    "provider": "Provider",
+    "diagnosisCodes": "Diagnosis codes",
+    "procedureCodes": "Procedure codes",
+    "drugCodes": "Drug codes",
+    "serviceDate": "Service date",
+    "claimDate": "Claim date",
+    "clinicalNotes": "Clinical notes",
+    "attachments": "Attachments",
+    "decision": "Decision",
+    "reviewer": "Reviewer",
+    "types": {
+      "outpatient": "Outpatient",
+      "inpatient": "Inpatient",
+      "pharmacy": "Pharmacy",
+      "lab": "Lab",
+      "dental": "Dental",
+      "vision": "Vision"
+    }
+  },
+  "provider": {
+    "dashboard": {
+      "title": "Provider Dashboard",
+      "claimsToday": "Claims today",
+      "pendingResponses": "Pending responses",
+      "denialRate": "Denial rate (30d)",
+      "paymentsThisMonth": "Payments this month",
+      "recentClaims": "Recent claims",
+      "denialAlerts": "Denial alerts",
+      "claimStatusDistribution": "Claim status distribution"
+    },
+    "newClaim": {
+      "title": "New claim",
+      "enterPatientId": "Enter patient National ID",
+      "eligibilityResult": "Eligibility result",
+      "covered": "Covered",
+      "notCovered": "Not covered",
+      "claimType": "Claim type",
+      "addServiceLine": "Add service line",
+      "searchDiagnosis": "Search diagnosis codes…",
+      "totalAmount": "Total amount",
+      "submit": "Submit claim",
+      "success": "Claim submitted successfully",
+      "correlationId": "Correlation ID"
+    }
+  },
+  "payer": {
+    "dashboard": {
+      "title": "Payer Dashboard",
+      "queueDepth": "Queue depth",
+      "approvalRate": "Approval rate",
+      "pendingPreAuth": "Pending pre-auths",
+      "avgProcessingTime": "Avg processing time"
+    },
+    "queue": {
+      "title": "Claims queue",
+      "new": "New",
+      "aiReviewed": "AI reviewed",
+      "pendingDecision": "Pending decision",
+      "completedToday": "Completed today",
+      "openFullPage": "Open full page",
+      "decisionPanel": "Decision panel",
+      "approve": "Approve",
+      "deny": "Deny",
+      "escalate": "Escalate to SIU",
+      "reasonCode": "Reason code",
+      "notes": "Notes",
+      "submitDecision": "Submit decision",
+      "similarClaims": "Similar claims"
+    },
+    "analytics": {
+      "lossRatio": "Loss ratio",
+      "claimsApprovalRate": "Claims approval rate",
+      "avgProcessingTime": "Avg processing time",
+      "fraudDetectionRate": "Fraud detection rate",
+      "topDenialReasons": "Top denial reasons",
+      "claimsByType": "Claims by type",
+      "claimsByGovernorate": "Claims by governorate",
+      "aiAccuracy": "AI accuracy"
+    }
+  },
+  "siu": {
+    "dashboard": {
+      "title": "SIU Dashboard",
+      "flaggedTotal": "Total flagged claims",
+      "openInvestigations": "Open investigations",
+      "resolvedCases": "Resolved cases",
+      "fraudSavings": "Fraud savings"
+    },
+    "flagged": {
+      "title": "Flagged claims",
+      "highRisk": "High risk",
+      "mediumRisk": "Medium risk",
+      "allFlagged": "All flagged",
+      "openInvestigation": "Open investigation",
+      "markLegitimate": "Mark legitimate"
+    },
+    "network": {
+      "title": "Network analysis",
+      "description": "Interactive provider-patient-pharmacy relationship graph",
+      "suspiciousCluster": "Suspicious cluster",
+      "nodeProvider": "Provider",
+      "nodePatient": "Patient",
+      "nodePharmacy": "Pharmacy"
+    },
+    "search": {
+      "title": "Cross-payer search",
+      "searchBy": "Search by…",
+      "results": "Results",
+      "potentialDuplicate": "Potential duplicate"
+    }
+  },
+  "regulatory": {
+    "dashboard": {
+      "title": "Regulatory Dashboard",
+      "totalClaimsVolume": "Total claims volume",
+      "marketLossRatio": "Market loss ratio",
+      "marketDenialRate": "Market denial rate",
+      "avgSettlementTime": "Avg settlement time",
+      "fraudDetectionRate": "Fraud detection rate",
+      "activeInsurers": "Active insurers"
+    },
+    "insurers": {
+      "title": "Insurer comparison",
+      "name": "Name",
+      "claimsVolume": "Claims volume",
+      "lossRatio": "Loss ratio",
+      "denialRate": "Denial rate",
+      "processingTime": "Processing time",
+      "fraudRate": "Fraud rate",
+      "aiAccuracy": "AI accuracy"
+    },
+    "geographic": {
+      "title": "Geographic analysis",
+      "selectMetric": "Select metric",
+      "governorate": "Governorate"
+    },
+    "reports": {
+      "title": "Regulatory reports",
+      "generateNow": "Generate now",
+      "dataFreshness": "Data as of"
+    }
+  }
+}

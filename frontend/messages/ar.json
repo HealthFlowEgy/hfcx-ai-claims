@@ -1,0 +1,273 @@
+{
+  "brand": {
+    "name": "HealthFlow HCX",
+    "tagline": "المنصة المصرية لتبادل المطالبات الطبية المدعومة بالذكاء الاصطناعي"
+  },
+  "common": {
+    "login": "تسجيل الدخول",
+    "logout": "تسجيل الخروج",
+    "search": "بحث",
+    "filter": "تصفية",
+    "export": "تصدير",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "submit": "إرسال",
+    "loading": "جار التحميل…",
+    "noData": "لا توجد بيانات",
+    "error": "حدث خطأ ما",
+    "retry": "إعادة المحاولة",
+    "close": "إغلاق",
+    "back": "رجوع",
+    "next": "التالي",
+    "confirm": "تأكيد",
+    "actions": "إجراءات",
+    "viewDetails": "عرض التفاصيل",
+    "viewAsTable": "عرض كجدول",
+    "total": "الإجمالي",
+    "date": "التاريخ",
+    "amount": "المبلغ",
+    "status": "الحالة",
+    "type": "النوع",
+    "language": "اللغة",
+    "arabic": "العربية",
+    "english": "English",
+    "unauthorized": "غير مصرح",
+    "accessDenied": "تم رفض الوصول"
+  },
+  "nav": {
+    "dashboard": "لوحة التحكم",
+    "newClaim": "مطالبة جديدة",
+    "eligibility": "التحقق من الأهلية",
+    "preAuth": "التصريح المسبق",
+    "claims": "المطالبات",
+    "claimsHistory": "سجل المطالبات",
+    "claimsQueue": "طابور المطالبات",
+    "denials": "الرفض والاستئناف",
+    "payments": "المدفوعات",
+    "communications": "المراسلات",
+    "settings": "الإعدادات",
+    "settledClaims": "المطالبات المُسواة",
+    "fraudAlerts": "تنبيهات الاحتيال",
+    "analytics": "التحليلات",
+    "flaggedClaims": "المطالبات المُشار إليها",
+    "investigations": "التحقيقات",
+    "networkAnalysis": "تحليل الشبكة",
+    "crossPayerSearch": "البحث عبر شركات التأمين",
+    "reports": "التقارير",
+    "marketOverview": "نظرة عامة على السوق",
+    "insurers": "شركات التأمين",
+    "geographic": "التحليل الجغرافي",
+    "fraudOversight": "الرقابة على الاحتيال",
+    "compliance": "الامتثال"
+  },
+  "portals": {
+    "title": "اختر البوابة",
+    "subtitle": "اختر البوابة التي تريد العمل بها",
+    "provider": {
+      "title": "بوابة مقدم الخدمة",
+      "description": "تقديم المطالبات، التحقق من الأهلية، متابعة الحالة، الاستئناف على الرفض"
+    },
+    "payer": {
+      "title": "لوحة شركة التأمين",
+      "description": "مراجعة المطالبات، القرارات المدعومة بالذكاء الاصطناعي، تحليلات الأداء"
+    },
+    "siu": {
+      "title": "بوابة وحدة التحقيق الخاصة",
+      "description": "التحقيقات في الاحتيال، تحليل الشبكة، البحث عبر شركات التأمين"
+    },
+    "regulatory": {
+      "title": "لوحة التنظيم",
+      "description": "نظرة عامة على السوق، أداء شركات التأمين، التقارير التنظيمية"
+    },
+    "enter": "دخول",
+    "noAccess": "لا تملك صلاحية الوصول"
+  },
+  "status": {
+    "submitted": "تم الإرسال",
+    "in_review": "قيد المراجعة",
+    "ai_analyzed": "تم التحليل",
+    "approved": "موافق عليه",
+    "denied": "مرفوض",
+    "pended": "معلق",
+    "partial": "موافقة جزئية",
+    "investigating": "قيد التحقيق",
+    "settled": "تم التسوية",
+    "voided": "ملغى"
+  },
+  "recommendation": {
+    "approve": "موافقة",
+    "deny": "رفض",
+    "investigate": "التحقيق",
+    "none": "لا توصية"
+  },
+  "risk": {
+    "low": "منخفض",
+    "medium": "متوسط",
+    "high": "مرتفع",
+    "critical": "حرج",
+    "label": "مستوى المخاطر",
+    "score": "درجة المخاطر",
+    "factors": "عوامل المخاطر"
+  },
+  "ai": {
+    "recommendationBadge": "توصية الذكاء الاصطناعي",
+    "disclaimer": "توصية مدعومة بالذكاء الاصطناعي. القرار النهائي يتطلب مراجعة بشرية.",
+    "confidence": "مستوى الثقة",
+    "reasoning": "تفسير الذكاء الاصطناعي",
+    "eligibility": "الأهلية",
+    "coding": "التكويد الطبي",
+    "fraud": "الاحتيال",
+    "necessity": "الضرورة الطبية",
+    "modelVersion": "إصدار النموذج",
+    "processingTime": "زمن المعالجة",
+    "unavailable": "تحليل الذكاء الاصطناعي غير متاح حالياً",
+    "unavailableHint": "المطالبة تُعالج بواسطة مراجع بشري."
+  },
+  "claim": {
+    "id": "رقم المطالبة",
+    "patientNid": "رقم المريض القومي",
+    "providerId": "معرف مقدم الخدمة",
+    "payer": "شركة التأمين",
+    "provider": "مقدم الخدمة",
+    "diagnosisCodes": "أكواد التشخيص",
+    "procedureCodes": "أكواد الإجراءات",
+    "drugCodes": "أكواد الأدوية",
+    "serviceDate": "تاريخ الخدمة",
+    "claimDate": "تاريخ المطالبة",
+    "clinicalNotes": "ملاحظات طبية",
+    "attachments": "المرفقات",
+    "decision": "القرار",
+    "reviewer": "المراجع",
+    "types": {
+      "outpatient": "عيادة خارجية",
+      "inpatient": "تنويم",
+      "pharmacy": "صيدلية",
+      "lab": "مختبر",
+      "dental": "أسنان",
+      "vision": "بصريات"
+    }
+  },
+  "provider": {
+    "dashboard": {
+      "title": "لوحة تحكم مقدم الخدمة",
+      "claimsToday": "مطالبات اليوم",
+      "pendingResponses": "الردود المعلقة",
+      "denialRate": "معدل الرفض (٣٠ يوم)",
+      "paymentsThisMonth": "المدفوعات هذا الشهر",
+      "recentClaims": "أحدث المطالبات",
+      "denialAlerts": "تنبيهات الرفض",
+      "claimStatusDistribution": "توزيع حالات المطالبات"
+    },
+    "newClaim": {
+      "title": "مطالبة جديدة",
+      "enterPatientId": "أدخل الرقم القومي للمريض",
+      "eligibilityResult": "نتيجة الأهلية",
+      "covered": "مُغطى",
+      "notCovered": "غير مُغطى",
+      "claimType": "نوع المطالبة",
+      "addServiceLine": "إضافة سطر خدمة",
+      "searchDiagnosis": "بحث في أكواد التشخيص…",
+      "totalAmount": "إجمالي المبلغ",
+      "submit": "إرسال المطالبة",
+      "success": "تم إرسال المطالبة بنجاح",
+      "correlationId": "معرف الربط"
+    }
+  },
+  "payer": {
+    "dashboard": {
+      "title": "لوحة شركة التأمين",
+      "queueDepth": "عمق الطابور",
+      "approvalRate": "معدل الموافقة",
+      "pendingPreAuth": "التصاريح المسبقة المعلقة",
+      "avgProcessingTime": "متوسط زمن المعالجة"
+    },
+    "queue": {
+      "title": "طابور المطالبات",
+      "new": "جديدة",
+      "aiReviewed": "تم التحليل",
+      "pendingDecision": "قيد القرار",
+      "completedToday": "مكتملة اليوم",
+      "openFullPage": "فتح في صفحة كاملة",
+      "decisionPanel": "قرار المراجعة",
+      "approve": "موافقة",
+      "deny": "رفض",
+      "escalate": "تصعيد إلى وحدة التحقيق",
+      "reasonCode": "كود السبب",
+      "notes": "ملاحظات",
+      "submitDecision": "إرسال القرار",
+      "similarClaims": "مطالبات مشابهة"
+    },
+    "analytics": {
+      "lossRatio": "نسبة الخسارة",
+      "claimsApprovalRate": "معدل قبول المطالبات",
+      "avgProcessingTime": "متوسط زمن المعالجة",
+      "fraudDetectionRate": "معدل اكتشاف الاحتيال",
+      "topDenialReasons": "أسباب الرفض الأكثر شيوعاً",
+      "claimsByType": "المطالبات حسب النوع",
+      "claimsByGovernorate": "المطالبات حسب المحافظة",
+      "aiAccuracy": "دقة الذكاء الاصطناعي"
+    }
+  },
+  "siu": {
+    "dashboard": {
+      "title": "لوحة وحدة التحقيق",
+      "flaggedTotal": "إجمالي المطالبات المُشار إليها",
+      "openInvestigations": "التحقيقات المفتوحة",
+      "resolvedCases": "القضايا المحلولة",
+      "fraudSavings": "التوفير من اكتشاف الاحتيال"
+    },
+    "flagged": {
+      "title": "المطالبات المُشار إليها",
+      "highRisk": "مخاطر مرتفعة",
+      "mediumRisk": "مخاطر متوسطة",
+      "allFlagged": "الكل",
+      "openInvestigation": "فتح تحقيق",
+      "markLegitimate": "وضع علامة: شرعي"
+    },
+    "network": {
+      "title": "تحليل الشبكة",
+      "description": "شبكة تفاعلية لعلاقات مقدمي الخدمة والمرضى والصيدليات",
+      "suspiciousCluster": "مجموعة مشبوهة",
+      "nodeProvider": "مقدم خدمة",
+      "nodePatient": "مريض",
+      "nodePharmacy": "صيدلية"
+    },
+    "search": {
+      "title": "البحث عبر شركات التأمين",
+      "searchBy": "بحث حسب…",
+      "results": "النتائج",
+      "potentialDuplicate": "تكرار محتمل"
+    }
+  },
+  "regulatory": {
+    "dashboard": {
+      "title": "لوحة التنظيم",
+      "totalClaimsVolume": "إجمالي حجم المطالبات",
+      "marketLossRatio": "نسبة الخسارة في السوق",
+      "marketDenialRate": "معدل الرفض في السوق",
+      "avgSettlementTime": "متوسط زمن التسوية",
+      "fraudDetectionRate": "معدل اكتشاف الاحتيال",
+      "activeInsurers": "شركات التأمين النشطة"
+    },
+    "insurers": {
+      "title": "مقارنة شركات التأمين",
+      "name": "الاسم",
+      "claimsVolume": "حجم المطالبات",
+      "lossRatio": "نسبة الخسارة",
+      "denialRate": "معدل الرفض",
+      "processingTime": "زمن المعالجة",
+      "fraudRate": "معدل الاحتيال",
+      "aiAccuracy": "دقة الذكاء الاصطناعي"
+    },
+    "geographic": {
+      "title": "التحليل الجغرافي",
+      "selectMetric": "اختر المقياس",
+      "governorate": "المحافظة"
+    },
+    "reports": {
+      "title": "التقارير التنظيمية",
+      "generateNow": "إنشاء الآن",
+      "dataFreshness": "البيانات حتى"
+    }
+  }
+}
