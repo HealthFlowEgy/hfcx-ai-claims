@@ -113,6 +113,25 @@ class Settings(BaseSettings):
     circuit_breaker_fail_max: int = 5
     circuit_breaker_reset_timeout_seconds: int = 30
 
+    # ── Audit Log Batcher (SEC-003) ──────────────────────────────────────
+    audit_queue_max_size: int = 10000
+    audit_batch_size: int = 100
+    audit_flush_interval_seconds: float = 2.0
+
+    # ── HAPI FHIR Terminology ────────────────────────────────────────────
+    hapi_fhir_base_url: str = "http://localhost:8084/fhir"
+    hapi_fhir_timeout_seconds: int = 5
+    hapi_fhir_enabled: bool = False
+
+    # ── XGBoost Supervised Fraud (Phase 2) ───────────────────────────────
+    xgboost_model_uri: str = ""         # e.g. minio://ai-model-weights/xgb/fraud-v1.json
+    xgboost_enabled: bool = False
+    xgboost_blend_weight: float = 0.4   # ensemble weight when enabled
+
+    # ── Multimodal (MedGemma 4B) ─────────────────────────────────────────
+    multimodal_enabled: bool = False
+    multimodal_model: str = "ollama/medgemma-4b-multimodal"
+
     # ── Feature Flags ────────────────────────────────────────────────────
     enable_fraud_agent: bool = True
     enable_coding_agent: bool = True

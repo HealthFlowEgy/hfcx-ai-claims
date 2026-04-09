@@ -86,3 +86,43 @@ MEMORY_STORE_OPS = Counter(
     "Agent memory store operations",
     ["tier", "outcome"],   # tier=l1|l2; outcome=ok|error
 )
+
+# ── Audit log batcher ─────────────────────────────────────────────────────────
+AUDIT_QUEUE_DEPTH = Gauge(
+    "hfcx_ai_audit_queue_depth",
+    "Current depth of the audit log batcher queue",
+)
+AUDIT_EVENTS_FLUSHED = Counter(
+    "hfcx_ai_audit_events_flushed_total",
+    "Total audit events written to ai_audit_log by the batcher",
+)
+AUDIT_EVENTS_DROPPED = Counter(
+    "hfcx_ai_audit_events_dropped_total",
+    "Audit events dropped because the batcher queue was full",
+)
+
+# ── Model drift (SRS 10.3) ────────────────────────────────────────────────────
+MODEL_DRIFT_SCORE = Gauge(
+    "hfcx_ai_model_drift_score",
+    "Rolling drift score for each model (0 = identical, 1 = very different)",
+    ["model"],
+)
+MODEL_ACCURACY = Gauge(
+    "hfcx_ai_model_accuracy",
+    "Rolling 7-day accuracy estimate per model/label",
+    ["model", "label"],
+)
+
+# ── Multimodal analysis ───────────────────────────────────────────────────────
+MULTIMODAL_DOCUMENTS_PROCESSED = Counter(
+    "hfcx_ai_multimodal_documents_processed_total",
+    "Total documents analyzed by the multimodal agent",
+    ["outcome"],           # ok|error|skipped
+)
+
+# ── HAPI FHIR terminology ─────────────────────────────────────────────────────
+HAPI_TERMINOLOGY_LOOKUPS = Counter(
+    "hfcx_ai_hapi_terminology_lookups_total",
+    "ICD-10 / SNOMED lookups against HAPI FHIR terminology",
+    ["system", "outcome"],  # system=icd10|snomed; outcome=hit|miss|error
+)

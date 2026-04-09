@@ -1,0 +1,185 @@
+{
+  "info": {
+    "name": "hfcx-ai-claims — Internal AI Intelligence Layer",
+    "_postman_id": "f3c7cb52-0e9a-4f7d-9b8e-hfcx000000000",
+    "description": "SRS §6.2 internal AI APIs. All requests require a service-to-service JWT in Authorization: Bearer {{token}}. In dev mode (APP_ENV=development) any token is accepted.\n\nSRS mapping:\n- Coordinator: FR-AO-001\n- Agents: FR-EV/MC/FD/MN-*\n- Memory: FR-SM-*\n- Drift feedback: §10.3\n- Health: §6.2\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8090", "type": "string" },
+    { "key": "token", "value": "dev-token", "type": "string" },
+    { "key": "correlation_id", "value": "pm-correlation-001", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /internal/ai/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/internal/ai/health"
+          }
+        },
+        {
+          "name": "GET /internal/ai/metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/internal/ai/metrics"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Coordinator",
+      "item": [
+        {
+          "name": "POST /internal/ai/coordinate — full FHIR claim",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fhir_claim_bundle\": {\n    \"resourceType\": \"Bundle\",\n    \"type\": \"collection\",\n    \"entry\": [{\n      \"resource\": {\n        \"resourceType\": \"Claim\",\n        \"id\": \"CLAIM-PM-001\",\n        \"type\": { \"coding\": [{ \"code\": \"professional\" }] },\n        \"patient\":  { \"reference\": \"Patient/29901011234567\" },\n        \"provider\": { \"reference\": \"Organization/HCP-EG-CAIRO-001\" },\n        \"insurance\": [{ \"coverage\": { \"reference\": \"Coverage/MISR-INSURANCE-001\" } }],\n        \"created\": \"2026-04-09T10:00:00Z\",\n        \"diagnosis\": [{\n          \"sequence\": 1,\n          \"diagnosisCodeableConcept\": {\n            \"coding\": [{ \"code\": \"J06.9\", \"system\": \"http://hl7.org/fhir/sid/icd-10\" }]\n          }\n        }],\n        \"total\": { \"value\": 850, \"currency\": \"EGP\" },\n        \"item\": [{\n          \"sequence\": 1,\n          \"servicedDate\": \"2026-04-09\",\n          \"productOrService\": { \"coding\": [{ \"code\": \"99213\" }] }\n        }]\n      }\n    }]\n  },\n  \"hcx_headers\": {\n    \"X-HCX-Correlation-ID\": \"{{correlation_id}}\",\n    \"X-HCX-Sender-Code\":    \"PROVIDER-EG-001\",\n    \"X-HCX-Recipient-Code\": \"PAYER-EG-MISR\",\n    \"X-HCX-Workflow-ID\":    \"wf-pm-001\",\n    \"X-HCX-API-Call-ID\":    \"api-call-pm-001\"\n  }\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/coordinate"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200 or 503', () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.correlation_id).to.be.a('string');",
+                  "  pm.expect(['approved','denied','pended','partial']).to.include(body.adjudication_decision);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Agents",
+      "item": [
+        {
+          "name": "POST /agents/eligibility/verify",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"patient_id\": \"29901011234567\",\n  \"payer_id\": \"MISR-INSURANCE-001\",\n  \"provider_id\": \"HCP-EG-CAIRO-001\",\n  \"service_date\": \"2026-04-09T09:00:00Z\",\n  \"claim_type\": \"outpatient\"\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/agents/eligibility/verify"
+          }
+        },
+        {
+          "name": "POST /agents/coding/validate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"diagnosis_codes\": [\"J06.9\", \"Z00.00\"],\n  \"procedure_codes\": [\"99213\"],\n  \"drug_codes\": [],\n  \"clinical_notes\": \"Acute upper respiratory infection\",\n  \"claim_type\": \"outpatient\"\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/agents/coding/validate"
+          }
+        },
+        {
+          "name": "POST /agents/fraud/score",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim_id\": \"CLAIM-PM-001\",\n  \"provider_id\": \"HCP-EG-CAIRO-001\",\n  \"patient_id\": \"29901011234567\",\n  \"total_amount\": 850.0,\n  \"diagnosis_codes\": [\"J06.9\"],\n  \"procedure_codes\": [\"99213\"],\n  \"claim_date\": \"2026-04-09T10:00:00Z\",\n  \"service_date\": \"2026-04-09T09:00:00Z\",\n  \"claim_type\": \"outpatient\"\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/agents/fraud/score"
+          }
+        },
+        {
+          "name": "POST /agents/necessity/assess",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"diagnosis_codes\": [\"J06.9\"],\n  \"procedure_codes\": [\"99213\"],\n  \"drug_codes\": [\"EDA-AMOXICILLIN-500\"],\n  \"clinical_notes\": \"Acute URI, fever, sore throat\",\n  \"claim_type\": \"outpatient\",\n  \"total_amount\": 850.0\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/agents/necessity/assess"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Memory",
+      "item": [
+        {
+          "name": "POST /memory/store",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_name\": \"fraud\",\n  \"claim_id\": \"CLAIM-PM-001\",\n  \"pattern_key\": \"provider:HCP-EG-CAIRO-001:upcoding\",\n  \"pattern_value\": { \"diagnosis_avg\": 3.2, \"amount_avg\": 1200.0 },\n  \"pattern_type\": \"fraud_signal\",\n  \"confidence\": 0.85\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/memory/store"
+          }
+        },
+        {
+          "name": "GET /memory/context/{agent}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/internal/ai/memory/context/fraud"
+          }
+        }
+      ]
+    },
+    {
+      "name": "LLM",
+      "item": [
+        {
+          "name": "POST /llm/completion",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Summarize: patient J06.9 outpatient visit, antibiotic prescribed.\",\n  \"max_tokens\": 200,\n  \"temperature\": 0.2\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/llm/completion"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Drift Feedback",
+      "item": [
+        {
+          "name": "POST /feedback",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correlation_id\": \"{{correlation_id}}\",\n  \"ai_decision\": \"pended\",\n  \"human_decision\": \"approved\",\n  \"ai_score\": 0.55,\n  \"model\": \"coordinator\"\n}\n"
+            },
+            "url": "{{base_url}}/internal/ai/feedback"
+          }
+        }
+      ]
+    }
+  ]
+}

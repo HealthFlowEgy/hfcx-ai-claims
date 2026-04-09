@@ -47,10 +47,29 @@ async def coordinate_claim(
         )
     except Exception as exc:
         log.error("fhir_parse_error", error=str(exc))
-        raise HTTPException(status_code=422, detail=f"FHIR bundle parse error: {exc}")
+        raise HTTPException(
+            status_code=422, detail=f"FHIR bundle parse error: {exc}"
+        ) from exc
 
     t0 = time.monotonic()
-    analysis = await coordinator.process_claim(claim)
+    try:
+        analysis = await coordinator.process_claim(claim)
+    except Exception as exc:
+        # NFR-004 graceful degradation: surface as 503 with correlation ID
+        # rather than leaking a 500. The Kafka consumer path has its own
+        # bypass-on-failure branch; the REST path is operator-facing so
+        # a clear error is more useful.
+        log.error("coordinator_rest_failed", error=str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "ERR-AI-503",
+                "message": (
+                    "AI layer unavailable — retry later or route to manual queue"
+                ),
+                "correlation_id": claim.hcx_correlation_id,
+            },
+        ) from exc
     processing_ms = int((time.monotonic() - t0) * 1000)
 
     return AICoordinateResponse(
