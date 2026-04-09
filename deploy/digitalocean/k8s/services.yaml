@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HFCX AI Claims — Services (DigitalOcean DOKS)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Backend ClusterIP Service ────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: hfcx-ai-api
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090
+      protocol: TCP
+
+---
+# ── Frontend ClusterIP Service ───────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: hfcx-frontend
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+
+---
+# ── DigitalOcean LoadBalancer ────────────────────────────────────────────────
+# Routes external traffic to both backend API and frontend
+apiVersion: v1
+kind: Service
+metadata:
+  name: hfcx-ai-lb
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: loadbalancer
+  annotations:
+    # DigitalOcean LB annotations
+    service.beta.kubernetes.io/do-loadbalancer-name: "hfcx-ai-lb"
+    service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-algorithm: "round_robin"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/internal/ai/health"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-port: "8090"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-check-interval-seconds: "10"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-response-timeout-seconds: "5"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-unhealthy-threshold: "3"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-healthy-threshold: "5"
+    # Enable proxy protocol for real client IPs
+    service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
+    # Sticky sessions for WebSocket/SSE
+    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-type: "cookies"
+    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-cookie-name: "HFCX_LB"
+    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-cookie-ttl: "3600"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: api
+  ports:
+    - name: api
+      port: 8090
+      targetPort: 8090
+      protocol: TCP
+    - name: frontend
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+
+---
+# ── PodDisruptionBudget — API ────────────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hfcx-ai-api-pdb
+  namespace: hcx-ai
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hfcx-ai-claims
+      app.kubernetes.io/component: api
+
+---
+# ── PodDisruptionBudget — Consumer ───────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hfcx-ai-consumer-pdb
+  namespace: hcx-ai
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hfcx-ai-claims
+      app.kubernetes.io/component: consumer
+
+---
+# ── PodDisruptionBudget — Frontend ───────────────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hfcx-frontend-pdb
+  namespace: hcx-ai
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hfcx-ai-claims
+      app.kubernetes.io/component: frontend

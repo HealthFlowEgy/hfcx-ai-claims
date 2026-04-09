@@ -1,0 +1,175 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HFCX AI Claims — Ingress (DigitalOcean DOKS + nginx-ingress + cert-manager)
+#
+# Prerequisites:
+#   1. Install nginx-ingress:
+#      helm install ingress-nginx ingress-nginx/ingress-nginx \
+#        --namespace ingress-nginx --create-namespace \
+#        --set controller.publishService.enabled=true
+#
+#   2. Install cert-manager:
+#      helm install cert-manager jetstack/cert-manager \
+#        --namespace cert-manager --create-namespace \
+#        --set installCRDs=true
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Let's Encrypt ClusterIssuer ──────────────────────────────────────────────
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: devops@healthflow.eg
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: devops@healthflow.eg
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+
+---
+# ── Ingress — Frontend Portal ────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hfcx-frontend-ingress
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: frontend
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # Security headers (SRS SEC-003)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "DENY" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.healthflow.eg wss://api.healthflow.eg;" always;
+spec:
+  tls:
+    - hosts:
+        - portal.healthflow.eg
+      secretName: hfcx-frontend-tls
+  rules:
+    - host: portal.healthflow.eg
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hfcx-frontend
+                port:
+                  number: 3000
+
+---
+# ── Ingress — Backend API ────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hfcx-api-ingress
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: api
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # Rate limiting (NFR-002)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    # CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://portal.healthflow.eg"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type, X-Request-ID"
+spec:
+  tls:
+    - hosts:
+        - api.healthflow.eg
+      secretName: hfcx-api-tls
+  rules:
+    - host: api.healthflow.eg
+      http:
+        paths:
+          - path: /internal/ai
+            pathType: Prefix
+            backend:
+              service:
+                name: hfcx-ai-api
+                port:
+                  number: 8090
+
+---
+# ── Ingress — Monitoring (internal only) ─────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hfcx-monitoring-ingress
+  namespace: hcx-ai
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Restrict to internal IPs
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: monitoring-basic-auth
+spec:
+  tls:
+    - hosts:
+        - monitoring.healthflow.eg
+      secretName: hfcx-monitoring-tls
+  rules:
+    - host: monitoring.healthflow.eg
+      http:
+        paths:
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+          - path: /prometheus
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  number: 9090
+          - path: /jaeger
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger
+                port:
+                  number: 16686

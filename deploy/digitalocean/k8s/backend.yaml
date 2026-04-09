@@ -1,0 +1,277 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HFCX AI Claims — Backend Deployments (DigitalOcean DOKS)
+#
+# Image tags are substituted by envsubst in the CI/CD pipeline:
+#   ${BACKEND_IMG}   — registry.digitalocean.com/hfcx-registry/hfcx-ai-claims-backend:sha-xxxxx
+#   ${ENVIRONMENT}   — staging | production
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── ConfigMap ────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hfcx-ai-config
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: config
+data:
+  APP_ENV: "${ENVIRONMENT}"
+  APP_NAME: "hfcx-ai-claims"
+  LOG_LEVEL: "INFO"
+  HOST: "0.0.0.0"
+  PORT: "8090"
+  WORKERS: "4"
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda.hcx-ai.svc.cluster.local:9092"
+  KAFKA_CONSUMER_GROUP: "hfcx-ai-claims-group"
+  KAFKA_TOPIC_CLAIMS_VALIDATED: "hcx.claims.validated"
+  KAFKA_TOPIC_CLAIMS_ENRICHED: "hcx.claims.enriched"
+  KAFKA_TOPIC_DLQ: "hcx.claims.ai.dlq"
+  CHROMA_HOST: "chromadb.hcx-ai.svc.cluster.local"
+  CHROMA_PORT: "8000"
+  LITELLM_BASE_URL: "http://litellm.hcx-ai.svc.cluster.local:4000"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger.hcx-ai.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "hfcx-ai-claims"
+  CORS_ALLOW_ORIGINS: "https://portal.healthflow.eg,http://localhost:3000"
+  ENABLE_FRAUD_AGENT: "true"
+  ENABLE_CODING_AGENT: "true"
+  ENABLE_ELIGIBILITY_AGENT: "true"
+  ENABLE_NECESSITY_AGENT: "true"
+  ENABLE_ARABIC_NLP: "true"
+  AI_BYPASS_ON_FAILURE: "true"
+  FRAUD_HIGH_RISK_THRESHOLD: "0.75"
+  FRAUD_MEDIUM_RISK_THRESHOLD: "0.45"
+
+---
+# ── API Server Deployment ────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hfcx-ai-api
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: api
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hfcx-ai-claims
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hfcx-ai-claims
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8090"
+        prometheus.io/path: "/internal/ai/metrics"
+    spec:
+      serviceAccountName: hfcx-ai-sa
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: ${BACKEND_IMG}
+          ports:
+            - containerPort: 8090
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: hfcx-ai-config
+            - secretRef:
+                name: hfcx-ai-secrets
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /internal/ai/health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /internal/ai/health
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            httpGet:
+              path: /internal/ai/health
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+      nodeSelector:
+        workload: general
+
+---
+# ── API HPA ──────────────────────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hfcx-ai-api-hpa
+  namespace: hcx-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hfcx-ai-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+# ── Kafka Consumer Deployment ────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hfcx-ai-consumer
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+    app.kubernetes.io/component: consumer
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hfcx-ai-claims
+      app.kubernetes.io/component: consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hfcx-ai-claims
+        app.kubernetes.io/component: consumer
+    spec:
+      serviceAccountName: hfcx-ai-sa
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: consumer
+          image: ${BACKEND_IMG}
+          command: ["python", "-m", "src.kafka.consumer"]
+          envFrom:
+            - configMapRef:
+                name: hfcx-ai-config
+            - secretRef:
+                name: hfcx-ai-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 60
+      nodeSelector:
+        workload: general
+
+---
+# ── Consumer HPA ─────────────────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hfcx-ai-consumer-hpa
+  namespace: hcx-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hfcx-ai-consumer
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ── Service Account ──────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hfcx-ai-sa
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: hfcx-ai-claims
+
+---
+# ── Network Policy ───────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hfcx-ai-network-policy
+  namespace: hcx-ai
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hfcx-ai-claims
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 8090
+          protocol: TCP
+        - port: 3000
+          protocol: TCP
+  egress:
+    - {}
