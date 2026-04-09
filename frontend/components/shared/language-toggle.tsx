@@ -20,7 +20,11 @@ export function LanguageToggle() {
 
   const toggle = () => {
     const next = locale === 'ar' ? 'en' : 'ar';
-    document.cookie = `hcx_locale=${next}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    const secure =
+      typeof window !== 'undefined' && window.location.protocol === 'https:'
+        ? '; Secure'
+        : '';
+    document.cookie = `hcx_locale=${next}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
     startTransition(() => router.refresh());
   };
 

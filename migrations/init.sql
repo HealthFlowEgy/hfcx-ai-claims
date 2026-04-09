@@ -14,6 +14,17 @@ CREATE TABLE IF NOT EXISTS ai_claim_analysis (
     correlation_id        VARCHAR(128) NOT NULL,
     hcx_workflow_id       VARCHAR(128),
 
+    -- Denormalized claim metadata populated by the AI writer on each
+    -- coordinator run so the BFF can render portal dashboards without
+    -- joining the HFCX platform claims table cross-service.
+    provider_id           VARCHAR(128),
+    payer_id              VARCHAR(128),
+    claim_type            VARCHAR(32),
+    total_amount          NUMERIC(14,2),
+    patient_nid_hash      VARCHAR(64),
+    patient_nid_masked    VARCHAR(32),
+    service_date          TIMESTAMPTZ,
+
     -- SRS 5.1 exact-spec columns
     risk_score            NUMERIC(3,2) CHECK (risk_score IS NULL OR (risk_score >= 0 AND risk_score <= 1)),
     recommendation        VARCHAR(16) CHECK (recommendation IS NULL OR recommendation IN ('approve','deny','investigate')),
@@ -50,6 +61,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_correlation_id ON ai_claim_anal
 CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_decision        ON ai_claim_analysis(adjudication_decision);
 CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_fraud_score     ON ai_claim_analysis(fraud_score);
 CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_created_at      ON ai_claim_analysis(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_provider_id     ON ai_claim_analysis(provider_id);
+CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_payer_id        ON ai_claim_analysis(payer_id);
+CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_claim_type      ON ai_claim_analysis(claim_type);
 CREATE INDEX IF NOT EXISTS idx_ai_claim_analysis_human_review    ON ai_claim_analysis(requires_human_review)
     WHERE requires_human_review = TRUE;
 

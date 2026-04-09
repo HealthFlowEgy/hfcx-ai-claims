@@ -1,8 +1,10 @@
 import Link from 'next/link';
-import { useTranslations } from 'next-intl';
+import { getTranslations } from 'next-intl/server';
 import {
   ArrowRight,
   Building2,
+  Lock,
+  type LucideIcon,
   ScanEye,
   ShieldAlert,
   Stethoscope,
@@ -17,21 +19,36 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LanguageToggle } from '@/components/shared/language-toggle';
+import { devSession, portalsForRoles, type PortalKey } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
 /**
  * SRS §3.1 — Portal Selection landing.
- * Shows all four portals. The role-based show/hide logic (SRS §3.2)
- * wraps these cards at the edge via the BFF role check; for the
- * scaffold we render all four with accessible keyboard navigation.
+ * SRS §3.2 role-permission matrix: cards for unauthorized portals are
+ * rendered as disabled (grayed out, non-interactive, with a lock icon)
+ * rather than hidden so users understand their current entitlements.
  */
-export default function PortalSelectorPage() {
-  const t = useTranslations('portals');
-  const tb = useTranslations('brand');
+export default async function PortalSelectorPage() {
+  const t = await getTranslations('portals');
+  const tb = await getTranslations('brand');
 
-  const portals = [
+  // Server-side session resolution. Production replaces devSession()
+  // with a call to the BFF /session endpoint that validates the
+  // Keycloak JWT and returns the user's roles.
+  const session = devSession();
+  const allowed = portalsForRoles(session.roles);
+
+  const portals: {
+    key: PortalKey;
+    title: string;
+    description: string;
+    href: string;
+    Icon: LucideIcon;
+    bg: string;
+    accent: string;
+  }[] = [
     {
-      key: 'provider' as const,
+      key: 'provider',
       title: t('provider.title'),
       description: t('provider.description'),
       href: '/provider',
@@ -40,7 +57,7 @@ export default function PortalSelectorPage() {
       accent: 'text-hcx-primary',
     },
     {
-      key: 'payer' as const,
+      key: 'payer',
       title: t('payer.title'),
       description: t('payer.description'),
       href: '/payer',
@@ -49,7 +66,7 @@ export default function PortalSelectorPage() {
       accent: 'text-hcx-success',
     },
     {
-      key: 'siu' as const,
+      key: 'siu',
       title: t('siu.title'),
       description: t('siu.description'),
       href: '/siu',
@@ -58,7 +75,7 @@ export default function PortalSelectorPage() {
       accent: 'text-hcx-investigate',
     },
     {
-      key: 'regulatory' as const,
+      key: 'regulatory',
       title: t('regulatory.title'),
       description: t('regulatory.description'),
       href: '/regulatory',
@@ -80,7 +97,13 @@ export default function PortalSelectorPage() {
             <p className="text-xs text-hcx-text-muted">{tb('tagline')}</p>
           </div>
         </div>
-        <LanguageToggle />
+        <div className="flex items-center gap-3">
+          <div className="hidden flex-col items-end text-xs text-hcx-text-muted md:flex">
+            <span className="font-semibold text-hcx-text">{session.name}</span>
+            <span>{session.organization}</span>
+          </div>
+          <LanguageToggle />
+        </div>
       </header>
 
       <main className="container mx-auto max-w-5xl px-4 py-12">
@@ -90,35 +113,83 @@ export default function PortalSelectorPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          {portals.map(({ key, title, description, href, Icon, bg, accent }) => (
-            <Link
-              key={key}
-              href={href}
-              className="group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hcx-primary focus-visible:ring-offset-2"
-              aria-label={title}
-            >
-              <Card className="h-full border-border transition-all group-hover:-translate-y-1 group-hover:shadow-md">
-                <CardHeader className="flex flex-row items-start gap-3">
-                  <div className={cn('rounded-xl p-3', bg)}>
-                    <Icon className={cn('size-6', accent)} aria-hidden />
+          {portals.map(
+            ({ key, title, description, href, Icon, bg, accent }) => {
+              const enabled = allowed.has(key);
+              if (!enabled) {
+                return (
+                  <div
+                    key={key}
+                    aria-disabled
+                    className="cursor-not-allowed"
+                    title={t('noAccess')}
+                  >
+                    <Card className="h-full border-border/60 bg-muted/30 opacity-60">
+                      <CardHeader className="flex flex-row items-start gap-3">
+                        <div className="rounded-xl bg-muted/60 p-3">
+                          <Lock
+                            className="size-6 text-hcx-muted"
+                            aria-hidden
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <CardTitle className="text-lg">{title}</CardTitle>
+                          <Badge variant="outline" className="text-xs">
+                            {key}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <CardDescription className="mb-3">
+                          {description}
+                        </CardDescription>
+                        <span className="text-xs font-semibold text-hcx-muted">
+                          {t('noAccess')}
+                        </span>
+                      </CardContent>
+                    </Card>
                   </div>
-                  <div className="space-y-1">
-                    <CardTitle className="text-lg">{title}</CardTitle>
-                    <Badge variant="outline" className="text-xs">
-                      {key}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription className="mb-3">{description}</CardDescription>
-                  <span className="inline-flex items-center gap-1 text-sm font-semibold text-hcx-primary">
-                    {t('enter')}
-                    <ArrowRight className="size-4 rtl-mirror" aria-hidden />
-                  </span>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+                );
+              }
+              return (
+                <Link
+                  key={key}
+                  href={href}
+                  className="group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hcx-primary focus-visible:ring-offset-2"
+                  aria-label={title}
+                >
+                  <Card className="h-full border-border transition-all group-hover:-translate-y-1 group-hover:shadow-md">
+                    <CardHeader className="flex flex-row items-start gap-3">
+                      <div className={cn('rounded-xl p-3', bg)}>
+                        <Icon
+                          className={cn('size-6', accent)}
+                          aria-hidden
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <CardTitle className="text-lg">{title}</CardTitle>
+                        <Badge variant="outline" className="text-xs">
+                          {key}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="mb-3">
+                        {description}
+                      </CardDescription>
+                      <span className="inline-flex items-center gap-1 text-sm font-semibold text-hcx-primary">
+                        {t('enter')}
+                        <ArrowRight
+                          className="size-4 rtl-mirror"
+                          aria-hidden
+                        />
+                      </span>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            },
+          )}
         </div>
       </main>
     </div>
