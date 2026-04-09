@@ -32,6 +32,7 @@ from src.agents.coordinator import get_coordinator, shutdown_coordinator
 from src.agents.eligibility import EligibilityAgent
 from src.agents.multimodal import MultimodalDocumentAgent
 from src.api.routes.agents import router as agents_router
+from src.api.routes.bff import router as bff_router
 from src.api.routes.coordinator import router as coordinator_router
 from src.api.routes.feedback import router as feedback_router
 from src.api.routes.health import router as health_router
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(memory_router, prefix="/internal/ai/memory", tags=["Memory"])
     app.include_router(llm_router, prefix="/internal/ai/llm", tags=["LLM"])
     app.include_router(feedback_router, prefix="/internal/ai", tags=["Feedback"])
+    app.include_router(bff_router, prefix="/internal/ai", tags=["BFF"])
     app.include_router(health_router, prefix="/internal/ai", tags=["Health"])
 
     # ── Prometheus metrics endpoint ───────────────────────────────────────
