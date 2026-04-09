@@ -15,6 +15,7 @@ from src.models.schemas import (
     AICoordinateResponse,
     FHIRClaimBundle,
 )
+from src.services.claim_analysis_writer import ClaimAnalysisWriter
 from src.utils.fhir_parser import FHIRClaimParser
 
 log = structlog.get_logger(__name__)
@@ -71,6 +72,10 @@ async def coordinate_claim(
             },
         ) from exc
     processing_ms = int((time.monotonic() - t0) * 1000)
+
+    # Persist the analysis row so BFF dashboards see real data
+    # (P0 review finding). Non-blocking — logged + swallowed on error.
+    await ClaimAnalysisWriter.persist(claim=claim, analysis=analysis)
 
     return AICoordinateResponse(
         correlation_id=analysis.correlation_id,

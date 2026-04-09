@@ -463,6 +463,28 @@ async def regulatory_summary(
         )
 
 
+# Mapping from UI-facing status names (SRS §2.3) to the internal
+# ai_claim_analysis.adjudication_decision values. The UI speaks in the
+# badge vocabulary, the DB speaks in decision vocabulary.
+_UI_STATUS_TO_DECISION: dict[str, list[str | None]] = {
+    "submitted": [None],
+    "ai_analyzed": [None],
+    "in_review": ["pended"],
+    "approved": ["approved"],
+    "denied": ["denied"],
+    "settled": ["approved"],
+    "voided": ["voided"],
+    "investigating": ["pended"],
+}
+
+
+def _ui_status_filter(ui_statuses: list[str]) -> list[str | None]:
+    out: list[str | None] = []
+    for s in ui_statuses:
+        out.extend(_UI_STATUS_TO_DECISION.get(s, [s]))
+    return out
+
+
 # ─── BFF: Claims list ─────────────────────────────────────────────────────
 @router.get("/bff/claims", response_model=ClaimListResponse)
 async def list_claims(
@@ -482,34 +504,46 @@ async def list_claims(
             if portal == "siu":
                 stmt = stmt.where(AIClaimAnalysis.fraud_score >= 0.6)
             if status:
-                wanted = set(status.split(","))
-                stmt = stmt.where(
-                    AIClaimAnalysis.adjudication_decision.in_(wanted)
-                )
+                ui_statuses = [s.strip() for s in status.split(",") if s.strip()]
+                decisions = _ui_status_filter(ui_statuses)
+                nullable = None in decisions
+                concrete = [d for d in decisions if d is not None]
+                if nullable and concrete:
+                    stmt = stmt.where(
+                        (AIClaimAnalysis.adjudication_decision.is_(None))
+                        | (AIClaimAnalysis.adjudication_decision.in_(concrete))
+                    )
+                elif nullable:
+                    stmt = stmt.where(
+                        AIClaimAnalysis.adjudication_decision.is_(None)
+                    )
+                elif concrete:
+                    stmt = stmt.where(
+                        AIClaimAnalysis.adjudication_decision.in_(concrete)
+                    )
             if search:
                 stmt = stmt.where(
                     AIClaimAnalysis.claim_id.ilike(f"%{search}%")
                 )
 
-            total = (
-                await session.execute(
-                    select(func.count()).select_from(stmt.subquery())
-                )
-            ).scalar() or 0
+            # Build count + data statements separately so mutating one
+            # does not affect the other (bugfix for the previous shared
+            # stmt.limit().offset() pattern).
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            data_stmt = stmt.limit(limit).offset(offset)
 
-            rows = (
-                await session.execute(stmt.limit(limit).offset(offset))
-            ).scalars().all()
+            total = (await session.execute(count_stmt)).scalar() or 0
+            rows = (await session.execute(data_stmt)).scalars().all()
 
             items = [
                 ClaimListItem(
                     claim_id=r.claim_id,
                     correlation_id=r.correlation_id,
-                    patient_nid_masked=_mask_nid(""),
-                    provider_id="",
-                    payer_id="",
-                    claim_type="outpatient",
-                    total_amount=0.0,
+                    patient_nid_masked=r.patient_nid_masked or "****",
+                    provider_id=r.provider_id or "",
+                    payer_id=r.payer_id or "",
+                    claim_type=r.claim_type or "outpatient",
+                    total_amount=float(r.total_amount) if r.total_amount is not None else 0.0,
                     status=_status_from_row(r),
                     ai_risk_score=r.fraud_score,
                     ai_recommendation=r.adjudication_decision,

@@ -47,6 +47,19 @@ class AIClaimAnalysis(Base):
     correlation_id = Column(String(128), nullable=False, index=True)
     hcx_workflow_id = Column(String(128), nullable=True)
 
+    # ── Claim metadata (denormalized from FHIR bundle) ────────────────
+    # These columns are populated by the claim-analysis writer so the
+    # BFF layer can power dashboards without joining the HFCX platform
+    # claims table cross-service. SEC-005: patient_id is stored as a
+    # SHA-256 hash only; the masked NID is a display aid, not the truth.
+    provider_id = Column(String(128), nullable=True, index=True)
+    payer_id = Column(String(128), nullable=True, index=True)
+    claim_type = Column(String(32), nullable=True, index=True)
+    total_amount = Column(Numeric(14, 2), nullable=True)
+    patient_nid_hash = Column(String(64), nullable=True, index=True)
+    patient_nid_masked = Column(String(32), nullable=True)
+    service_date = Column(DateTime(timezone=True), nullable=True)
+
     # SRS 5.1 exact-spec columns
     risk_score = Column(Numeric(3, 2), nullable=True)
     recommendation = Column(String(16), nullable=True)    # approve|deny|investigate

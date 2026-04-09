@@ -32,6 +32,7 @@ from src.models.schemas import (
     KafkaEnrichedClaimMessage,
 )
 from src.services.audit_service import AuditService
+from src.services.claim_analysis_writer import ClaimAnalysisWriter
 from src.utils.fhir_parser import FHIRClaimParser
 from src.utils.metrics import (
     KAFKA_CONSUMER_LAG,
@@ -180,6 +181,10 @@ class ClaimsKafkaConsumer:
 
             # Run AI analysis (singleton coordinator, hot graph)
             analysis: ClaimAnalysisState = await self._coordinator.process_claim(claim)
+
+            # Persist the full AI analysis row so BFF dashboards see real
+            # data (P0 review finding). Non-blocking — failures log only.
+            await ClaimAnalysisWriter.persist(claim=claim, analysis=analysis)
 
             # Build enriched message
             enriched = KafkaEnrichedClaimMessage(
