@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff
+      - run: pip install ruff==0.7.1
       - run: ruff check src/ tests/ --output-format=github
 
   # ── Type Check ──────────────────────────────────────────────────────────────
@@ -45,6 +45,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install mypy pydantic pydantic-settings structlog
+      # Keep in sync with pyproject.toml [tool.mypy]
       - run: mypy src/ --ignore-missing-imports --no-strict-optional
 
   # ── Unit Tests ──────────────────────────────────────────────────────────────
@@ -56,6 +57,18 @@ jobs:
         image: redis:7-alpine
         ports: ["6379:6379"]
         options: --health-cmd "redis-cli ping" --health-interval 5s
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
@@ -78,8 +91,9 @@ jobs:
           EOF
 
       - name: Run tests with coverage
-        run: pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing \
-             --ignore=tests/test_kafka  # Kafka tests need testcontainers (integration)
+        run: |
+          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing \
+               --ignore=tests/test_kafka
         env:
           PYTHONPATH: .
 
@@ -128,7 +142,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Deploy (ArgoCD) ──────────────────────────────────────────────────────────
+  # ── Deploy (ArgoCD sync only — no git write-back) ───────────────────────────
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -136,23 +150,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment: production
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Update image tag in k8s manifest
-        run: |
-          IMAGE_TAG="${{ github.sha }}"
-          sed -i "s|healthflow/hfcx-ai-claims:.*|healthflow/hfcx-ai-claims:${IMAGE_TAG}|g" \
-            k8s/manifests.yaml
-
-      - name: Commit updated manifest
-        run: |
-          git config --local user.email "ci@healthflow.io"
-          git config --local user.name "HealthFlow CI"
-          git add k8s/manifests.yaml
-          git commit -m "ci: update image to ${{ github.sha }}" || echo "No changes"
-          git push
-
-      # ArgoCD watches the repo and auto-syncs the hcx-ai namespace
+      # ArgoCD is the single source of truth via Image Updater — CI only
+      # triggers a sync so manifests are never rewritten by CI commits.
       - name: Trigger ArgoCD sync
         run: |
           curl -X POST \

@@ -8,7 +8,7 @@ import time
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.agents.coordinator import CoordinatorAgent
+from src.agents.coordinator import get_coordinator
 from src.api.middleware import verify_service_jwt
 from src.models.schemas import (
     AICoordinateRequest,
@@ -20,6 +20,9 @@ from src.utils.fhir_parser import FHIRClaimParser
 log = structlog.get_logger(__name__)
 router = APIRouter()
 
+# Parser is stateless — safe to share.
+_parser = FHIRClaimParser()
+
 
 @router.post(
     "/coordinate",
@@ -27,19 +30,18 @@ router = APIRouter()
     summary="Submit FHIR Claim for AI Analysis",
     description=(
         "Accepts a FHIR R4 Claim bundle and runs multi-agent AI adjudication. "
-        "Returns enriched claim with eligibility, coding, fraud, and necessity assessments."
+        "Returns enriched claim with eligibility, coding, fraud, and necessity "
+        "assessments."
     ),
 )
 async def coordinate_claim(
     request: AICoordinateRequest,
     _: str = Depends(verify_service_jwt),
 ) -> AICoordinateResponse:
-    parser = FHIRClaimParser()
-    coordinator = CoordinatorAgent()
+    coordinator = get_coordinator()
 
     try:
-        # Parse FHIR bundle into our internal model
-        claim: FHIRClaimBundle = parser.parse(
+        claim: FHIRClaimBundle = _parser.parse(
             raw_bundle=request.fhir_claim_bundle,
             hcx_headers=request.hcx_headers,
         )
@@ -63,5 +65,6 @@ async def coordinate_claim(
         fraud=analysis.fraud,
         necessity=analysis.necessity,
         processing_time_ms=processing_ms,
-        fhir_extensions=[],  # Built by caller from analysis
+        model_versions=analysis.model_versions,
+        fhir_extensions=[],
     )

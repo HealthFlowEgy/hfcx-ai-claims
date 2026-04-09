@@ -54,7 +54,7 @@ KAFKA_CONSUMER_LAG = Gauge(
     "Current Kafka consumer lag (hcx.claims.validated)",
 )
 
-# ── Fraud metrics (7-day rolling — updated by background job) ─────────────────
+# ── Fraud metrics ─────────────────────────────────────────────────────────────
 FRAUD_SCORE_HISTOGRAM = Histogram(
     "hfcx_ai_fraud_scores",
     "Distribution of fraud scores",
@@ -71,4 +71,18 @@ MODEL_INFERENCE_LATENCY = Histogram(
     "LLM inference latency per model",
     ["model"],
     buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+
+# ── Circuit breaker ───────────────────────────────────────────────────────────
+CIRCUIT_BREAKER_TRIPS = Counter(
+    "hfcx_ai_circuit_breaker_trips_total",
+    "Number of times a circuit breaker has tripped to open",
+    ["breaker"],
+)
+
+# ── Memory (shared pattern store) ─────────────────────────────────────────────
+MEMORY_STORE_OPS = Counter(
+    "hfcx_ai_memory_store_ops_total",
+    "Agent memory store operations",
+    ["tier", "outcome"],   # tier=l1|l2; outcome=ok|error
 )

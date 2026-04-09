@@ -10,8 +10,6 @@
 #   docker compose logs -f ai-claims        # Follow AI layer logs
 #   docker compose down -v                  # Stop + remove volumes
 # ─────────────────────────────────────────────────────────────────────────────
-version: "3.9"
-
 networks:
   hfcx-ai-net:
     name: hfcx-ai-net

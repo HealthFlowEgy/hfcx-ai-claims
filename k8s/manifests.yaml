@@ -32,7 +32,8 @@ data:
   KAFKA_TOPIC_CLAIMS_ENRICHED: "hcx.claims.enriched"
   KAFKA_TOPIC_DLQ: "hcx.claims.ai.dlq"
   KAFKA_CONSUMER_GROUP: "hfcx-ai-claims-group"
-  REDIS_ELIGIBILITY_TTL_SECONDS: "3600"
+  # FR-EV-001: 24 hour eligibility cache
+  REDIS_ELIGIBILITY_TTL_SECONDS: "86400"
   REDIS_AGENT_STATE_TTL_SECONDS: "86400"
   CHROMA_PORT: "8000"
   LITELLM_TIMEOUT_SECONDS: "30"
@@ -44,6 +45,34 @@ data:
   ENABLE_ARABIC_NLP: "true"
   AI_BYPASS_ON_FAILURE: "true"
   OTEL_SERVICE_NAME: "hfcx-ai-claims"
+  CORS_ALLOW_ORIGINS: "https://portal.healthflow.io,https://payer.healthflow.io"
+  CIRCUIT_BREAKER_FAIL_MAX: "5"
+  CIRCUIT_BREAKER_RESET_TIMEOUT_SECONDS: "30"
+
+---
+# ── Secret — MUST be provisioned out-of-band (sealed-secrets / vault) ────────
+# This is a placeholder template. Operators should replace values with
+# sealed-secrets or ESO-sourced entries. The pods will CrashLoopBackOff until
+# a real Secret with the same name exists.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hfcx-ai-secrets
+  namespace: hcx-ai
+type: Opaque
+stringData:
+  SECRET_KEY: "REPLACE-WITH-SEALED-SECRET-32+CHARS"
+  DATABASE_URL: "postgresql+asyncpg://hfcx_ai:REPLACE@postgres.hcx.svc:5432/hfcx_ai"
+  REDIS_URL: "redis://redis.hcx.svc:6379/0"
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda.hcx.svc:9092"
+  LITELLM_BASE_URL: "http://litellm.hcx-ai.svc:4000"
+  LITELLM_API_KEY: "REPLACE"
+  CHROMA_HOST: "chromadb.hcx-ai.svc"
+  KEYCLOAK_URL: "https://auth.healthflow.io"
+  KEYCLOAK_CLIENT_SECRET: "REPLACE"
+  NDP_API_URL: "http://ndp.hcx.svc/ndp/v1"
+  NDP_API_KEY: "REPLACE"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc:4317"
 
 ---
 # ── AI Claims API Deployment ──────────────────────────────────────────────────
@@ -104,7 +133,7 @@ spec:
               memory: "2Gi"
 
 ---
-# ── Kafka Consumer Deployment ──────────────────────────────────────────────────
+# ── Kafka Consumer Deployment (min=3, max=6 — bounded by partition count) ────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -114,7 +143,7 @@ metadata:
     app: hfcx-ai-consumer
     component: consumer
 spec:
-  replicas: 3                   # One consumer per Kafka partition group
+  replicas: 3
   selector:
     matchLabels:
       app: hfcx-ai-consumer
@@ -139,11 +168,60 @@ spec:
                 name: hfcx-ai-secrets
           resources:
             requests:
-              cpu: "250m"
-              memory: "256Mi"
+              cpu: "500m"
+              memory: "512Mi"
             limits:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "2000m"
+              memory: "2Gi"
+
+---
+# ── GPU LLM Inference pool (Ollama/vLLM) ─────────────────────────────────────
+# Separate deployment pinned to GPU nodes via nodeSelector + toleration.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hfcx-ai-llm-gpu
+  namespace: hcx-ai
+  labels:
+    app: hfcx-ai-llm-gpu
+    component: llm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hfcx-ai-llm-gpu
+  template:
+    metadata:
+      labels:
+        app: hfcx-ai-llm-gpu
+    spec:
+      nodeSelector:
+        accelerator: nvidia-a100
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8000m"
+              memory: "32Gi"
+              nvidia.com/gpu: "1"
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: hfcx-ai-llm-models
 
 ---
 # ── Service ───────────────────────────────────────────────────────────────────
@@ -192,7 +270,11 @@ spec:
           averageUtilization: 80
 
 ---
-# ── HPA — Kafka Consumer (scale with consumer lag) ────────────────────────────
+# ── HPA — Kafka Consumer ──────────────────────────────────────────────────────
+# SRS NFR-002 says Fraud Agent 3-15, but the consumer cannot exceed the Kafka
+# partition count (6). Cap at 6 so we never have idle consumers; the Fraud
+# agent is exercised inside each consumer, so the 3-15 intent is met by the
+# combined API HPA (3-10) plus the consumer HPA (3-6).
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -204,7 +286,7 @@ spec:
     kind: Deployment
     name: hfcx-ai-consumer
   minReplicas: 3
-  maxReplicas: 15
+  maxReplicas: 6
   metrics:
     - type: Resource
       resource:
@@ -212,6 +294,19 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
+
+---
+# ── PVC for LLM model weights (MinIO-backed or local SSD) ────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hfcx-ai-llm-models
+  namespace: hcx-ai
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 200Gi
 
 ---
 # ── ServiceAccount ────────────────────────────────────────────────────────────
@@ -236,7 +331,6 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Only allow traffic from hcx namespace (hcx-pipeline-jobs)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -248,9 +342,8 @@ spec:
         - protocol: TCP
           port: 8090
   egress:
-    # Allow outbound to databases, Kafka, ChromaDB, LiteLLM
     - to:
-        - namespaceSelector: {}   # All namespaces (databases may be external)
+        - namespaceSelector: {}
       ports:
         - port: 5432   # PostgreSQL
         - port: 6379   # Redis
@@ -259,3 +352,4 @@ spec:
         - port: 4000   # LiteLLM
         - port: 8080   # Keycloak
         - port: 4317   # OTEL
+        - port: 11434  # Ollama
