@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import { getRequestConfig } from 'next-intl/server';
 
 /**
@@ -8,9 +9,6 @@ import { getRequestConfig } from 'next-intl/server';
  * the default, English LTR is the secondary mode).
  */
 export default getRequestConfig(async () => {
-  // next-intl reads the locale from the cookie set by LanguageToggle.
-  // Default to Arabic RTL per SRS §DS-RTL-001.
-  const { cookies } = await import('next/headers');
   const cookieStore = await cookies();
   const raw = cookieStore.get('hcx_locale')?.value;
   const locale: 'ar' | 'en' = raw === 'en' ? 'en' : 'ar';

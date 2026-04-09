@@ -15,6 +15,10 @@ import './globals.css';
  * swap in next/font/local at that point.
  */
 
+// Route segments must re-render on every request so the `hcx_locale`
+// cookie is re-read after the LanguageToggle flips it (SRS §DS-RTL-001).
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'HealthFlow HCX — AI-Powered Claims Exchange',
   description:

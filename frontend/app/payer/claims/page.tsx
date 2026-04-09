@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 
@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
  *
  * 80%+ of reviewer time lives here. Four columns map to the core
  * workflow states; clicking a card opens a right-side detail panel
- * with the AIRecommendationCard and the decision form.
+ * with the decision form that persists via /internal/ai/feedback.
  */
 
 const COLUMN_STATUSES: Record<string, ClaimStatus[]> = {
@@ -28,6 +28,17 @@ const COLUMN_STATUSES: Record<string, ClaimStatus[]> = {
   pending: ['in_review'],
   done: ['approved', 'denied', 'settled'],
 };
+
+function isToday(iso: string | null): boolean {
+  if (!iso) return false;
+  const then = new Date(iso);
+  const now = new Date();
+  return (
+    then.getFullYear() === now.getFullYear() &&
+    then.getMonth() === now.getMonth() &&
+    then.getDate() === now.getDate()
+  );
+}
 
 export default function PayerClaimsQueuePage() {
   const t = useTranslations('payer.queue');
@@ -47,7 +58,11 @@ export default function PayerClaimsQueuePage() {
       new: items.filter((c) => COLUMN_STATUSES.new.includes(c.status)),
       ai: items.filter((c) => COLUMN_STATUSES.ai.includes(c.status)),
       pending: items.filter((c) => COLUMN_STATUSES.pending.includes(c.status)),
-      done: items.filter((c) => COLUMN_STATUSES.done.includes(c.status)),
+      // Fix: only show claims decided TODAY in the "Completed Today" column.
+      done: items.filter(
+        (c) =>
+          COLUMN_STATUSES.done.includes(c.status) && isToday(c.decided_at),
+      ),
     };
   }, [data]);
 
@@ -126,15 +141,10 @@ export default function PayerClaimsQueuePage() {
             </CardHeader>
             <Separator />
             <CardContent className="space-y-4 p-4">
-              {/* The list endpoint returns the summary without AI details;
-                  a real review page would fetch /internal/ai/bff/claims/{id}.
-                  We surface a placeholder banner explaining that. */}
-              <p className="text-xs text-hcx-text-muted">
-                Full AI analysis loads via GET /internal/ai/bff/claims/{selectedClaim.claim_id}
-                — wire in the next iteration. The queue card already surfaces
-                the recommendation + risk bar.
-              </p>
-              <DecisionPanel />
+              <DecisionPanel
+                claim={selectedClaim}
+                onSubmitted={() => setSelected(null)}
+              />
             </CardContent>
           </Card>
         )}
@@ -183,11 +193,45 @@ function KanbanColumn({
   );
 }
 
-function DecisionPanel() {
+type Decision = 'approve' | 'deny' | 'escalate';
+
+function DecisionPanel({
+  claim,
+  onSubmitted,
+}: {
+  claim: ClaimSummary;
+  onSubmitted: () => void;
+}) {
   const t = useTranslations('payer.queue');
-  const [decision, setDecision] = useState<'approve' | 'deny' | 'escalate' | null>(
-    null,
-  );
+  const queryClient = useQueryClient();
+  const [decision, setDecision] = useState<Decision | null>(null);
+  const [notes, setNotes] = useState('');
+
+  const submit = useMutation({
+    mutationFn: async () => {
+      if (!decision) return null;
+      const humanDecision =
+        decision === 'approve'
+          ? 'approved'
+          : decision === 'deny'
+          ? 'denied'
+          : 'investigating';
+      return api.submitFeedback({
+        correlation_id: claim.correlation_id,
+        ai_decision: claim.ai_recommendation ?? 'pended',
+        human_decision: humanDecision,
+        ai_score: claim.ai_risk_score ?? undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payer', 'claims'] });
+      setDecision(null);
+      setNotes('');
+      onSubmitted();
+    },
+  });
+
+  const onClickDecision = useCallback((next: Decision) => setDecision(next), []);
 
   return (
     <div className="sticky bottom-0 space-y-3 rounded-lg border border-border bg-card p-3">
@@ -195,19 +239,19 @@ function DecisionPanel() {
       <div className="grid grid-cols-3 gap-2">
         <Button
           variant={decision === 'approve' ? 'success' : 'outline'}
-          onClick={() => setDecision('approve')}
+          onClick={() => onClickDecision('approve')}
         >
           {t('approve')}
         </Button>
         <Button
           variant={decision === 'deny' ? 'destructive' : 'outline'}
-          onClick={() => setDecision('deny')}
+          onClick={() => onClickDecision('deny')}
         >
           {t('deny')}
         </Button>
         <Button
           variant={decision === 'escalate' ? 'default' : 'outline'}
-          onClick={() => setDecision('escalate')}
+          onClick={() => onClickDecision('escalate')}
         >
           {t('escalate')}
         </Button>
@@ -215,10 +259,22 @@ function DecisionPanel() {
       <textarea
         rows={3}
         placeholder={t('notes')}
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
         className="w-full rounded-md border border-input bg-background p-2 text-sm"
       />
-      <Button className="w-full" disabled={!decision}>
-        {t('submitDecision')}
+      {submit.isError && (
+        <p className="text-xs text-hcx-danger" role="alert">
+          {(submit.error as Error).message}
+        </p>
+      )}
+      <Button
+        className="w-full"
+        disabled={!decision || submit.isPending}
+        onClick={() => submit.mutate()}
+        aria-busy={submit.isPending}
+      >
+        {submit.isPending ? '…' : t('submitDecision')}
       </Button>
     </div>
   );

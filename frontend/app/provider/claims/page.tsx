@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -16,6 +17,7 @@ export default function ProviderClaimsHistoryPage() {
   const t = useTranslations('nav');
   const tc = useTranslations('claim');
   const tco = useTranslations('common');
+  const router = useRouter();
   const locale = useLocale() as 'ar' | 'en';
 
   const { data } = useQuery({
@@ -49,11 +51,8 @@ export default function ProviderClaimsHistoryPage() {
       {
         header: tco('amount'),
         accessorKey: 'total_amount',
-        cell: ({ row }) => (
-          <span className="numeric">
-            {formatEgp(row.original.total_amount, locale)}
-          </span>
-        ),
+        meta: { numeric: true },
+        cell: ({ row }) => formatEgp(row.original.total_amount, locale),
       },
       {
         header: tco('status'),
@@ -86,6 +85,9 @@ export default function ProviderClaimsHistoryPage() {
             columns={columns}
             data={data?.items ?? []}
             searchPlaceholder={`${tco('search')}…`}
+            onRowClick={(row) =>
+              router.push(`/provider/claims?focus=${encodeURIComponent(row.claim_id)}`)
+            }
           />
         </CardContent>
       </Card>

@@ -70,19 +70,30 @@ export function DataTable<TData, TValue>({
           <thead className="bg-muted/40">
             {table.getHeaderGroups().map((group) => (
               <tr key={group.id}>
-                {group.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="px-4 py-3 text-start font-semibold text-hcx-text"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                  </th>
-                ))}
+                {group.headers.map((header) => {
+                  // SRS §DS-RTL-004: numeric columns align to the end
+                  // in both directions for readability.
+                  const meta = header.column.columnDef.meta as
+                    | { numeric?: boolean }
+                    | undefined;
+                  const align = meta?.numeric ? 'text-end' : 'text-start';
+                  return (
+                    <th
+                      key={header.id}
+                      className={cn(
+                        'px-4 py-3 font-semibold text-hcx-text',
+                        align,
+                      )}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
@@ -101,16 +112,35 @@ export function DataTable<TData, TValue>({
                 <tr
                   key={row.id}
                   className={cn(
-                    'border-t border-border transition-colors hover:bg-accent/40',
+                    'border-t border-border transition-colors hover:bg-accent/40 focus:bg-accent/60 focus:outline-none',
                     onRowClick && 'cursor-pointer',
                   )}
                   onClick={() => onRowClick?.(row.original)}
+                  role={onRowClick ? 'button' : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={(e) => {
+                    if (onRowClick && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      onRowClick(row.original);
+                    }
+                  }}
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-4 py-3">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as
+                      | { numeric?: boolean }
+                      | undefined;
+                    const align = meta?.numeric
+                      ? 'text-end font-mono tabular-nums'
+                      : 'text-start';
+                    return (
+                      <td key={cell.id} className={cn('px-4 py-3', align)}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             )}

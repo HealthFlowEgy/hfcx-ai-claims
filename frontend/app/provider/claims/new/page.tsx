@@ -3,7 +3,12 @@
 import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+} from 'react-hook-form';
 import { useLocale, useTranslations } from 'next-intl';
 import { Plus, Send, Trash2 } from 'lucide-react';
 import { z } from 'zod';
@@ -13,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Icd10Selector } from '@/components/shared/icd10-selector';
 import { PatientNidInput } from '@/components/shared/patient-nid-input';
 import { api } from '@/lib/api';
 import { formatEgp } from '@/lib/utils';
@@ -21,13 +27,8 @@ import { formatEgp } from '@/lib/utils';
  * SRS §4.2.2 — New Claim Submission form.
  *
  * Flow: NID → eligibility → claim type → service lines → submit.
- * This initial implementation covers the critical path: the form
- * structure, zod validation, service-line field array, real-time
- * total, and the POST to /internal/ai/coordinate on submit.
- *
- * The full FR-PP-ICD-001 Arabic autocomplete is wired as a plain
- * text input today — the searchable combobox lives in the next
- * iteration once the ICD-10 search endpoint is online.
+ * Uses the shared ICD10Selector (FR-PP-ICD-001) and a dedicated
+ * prescription_id field for pharmacy claims (FR-MC-003 NDP cross-ref).
  */
 
 const serviceLineSchema = z.object({
@@ -40,11 +41,20 @@ const serviceLineSchema = z.object({
 
 const claimSchema = z.object({
   patient_nid: z.string().regex(/^\d{14}$/),
-  claim_type: z.enum(['outpatient', 'inpatient', 'pharmacy', 'lab', 'dental', 'vision']),
+  claim_type: z.enum([
+    'outpatient',
+    'inpatient',
+    'pharmacy',
+    'lab',
+    'dental',
+    'vision',
+  ]),
   payer_id: z.string().min(1),
   provider_id: z.string().min(1),
   service_lines: z.array(serviceLineSchema).min(1),
   clinical_notes: z.string().optional(),
+  // FR-MC-003: NDP prescription reference (required for pharmacy claims)
+  prescription_id: z.string().optional(),
 });
 
 type ClaimFormValues = z.infer<typeof claimSchema>;
@@ -77,6 +87,7 @@ export default function NewClaimPage() {
         },
       ],
       clinical_notes: '',
+      prescription_id: '',
     },
   });
 
@@ -85,17 +96,28 @@ export default function NewClaimPage() {
     name: 'service_lines',
   });
 
-  const watchedLines = form.watch('service_lines');
+  // useWatch is scoped so only the total re-renders when service_lines
+  // change, not the whole form tree (SRS §11.2 perf budget).
+  const watchedLines = useWatch({
+    control: form.control,
+    name: 'service_lines',
+  });
+  const watchedClaimType = useWatch({
+    control: form.control,
+    name: 'claim_type',
+  });
+
   const totalAmount = useMemo(
     () =>
       (watchedLines ?? []).reduce(
         (sum, line) =>
-          sum +
-          Number(line?.amount || 0) * Number(line?.quantity || 1),
+          sum + Number(line?.amount || 0) * Number(line?.quantity || 1),
         0,
       ),
     [watchedLines],
   );
+
+  const isPharmacy = watchedClaimType === 'pharmacy';
 
   const submit = useMutation({
     mutationFn: async (values: ClaimFormValues) => {
@@ -135,6 +157,9 @@ export default function NewClaimPage() {
                 quantity: { value: line.quantity },
                 unitPrice: { value: line.amount, currency: 'EGP' },
               })),
+              prescription: values.prescription_id
+                ? [{ reference: `MedicationRequest/${values.prescription_id}` }]
+                : [],
               supportingInfo: values.clinical_notes
                 ? [
                     {
@@ -253,7 +278,7 @@ export default function NewClaimPage() {
             {fields.map((field, index) => (
               <div
                 key={field.id}
-                className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 md:grid-cols-6"
+                className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 md:grid-cols-7"
               >
                 <div className="md:col-span-1">
                   <Label>{tClaim('serviceDate')}</Label>
@@ -262,11 +287,17 @@ export default function NewClaimPage() {
                     {...form.register(`service_lines.${index}.service_date`)}
                   />
                 </div>
-                <div className="md:col-span-1">
+                <div className="md:col-span-2">
                   <Label>ICD-10</Label>
-                  <Input
-                    placeholder="J06.9"
-                    {...form.register(`service_lines.${index}.icd10_code`)}
+                  <Controller
+                    control={form.control}
+                    name={`service_lines.${index}.icd10_code`}
+                    render={({ field }) => (
+                      <Icd10Selector
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
                   />
                 </div>
                 <div className="md:col-span-1">
@@ -310,6 +341,27 @@ export default function NewClaimPage() {
             ))}
           </CardContent>
         </Card>
+
+        {isPharmacy && (
+          <Card className="border-hcx-warning/40">
+            <CardHeader>
+              <CardTitle>NDP Prescription</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Label htmlFor="prescription-id">Prescription ID</Label>
+              <Input
+                id="prescription-id"
+                placeholder="RX-EG-2026-001"
+                {...form.register('prescription_id')}
+                aria-required
+              />
+              <p className="mt-1 text-xs text-hcx-text-muted">
+                FR-MC-003 — required for pharmacy claims. The backend
+                cross-validates against NDP before adjudication.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -358,6 +410,10 @@ function claimTypeToFhir(t: string): string {
       return 'institutional';
     case 'pharmacy':
       return 'pharmacy';
+    case 'lab':
+      // Lab claims flow through the professional workflow per HFCX
+      // protocol §18 — there is no dedicated FHIR Claim.type.code.
+      return 'professional';
     case 'dental':
       return 'oral';
     case 'vision':
