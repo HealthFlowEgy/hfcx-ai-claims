@@ -171,6 +171,76 @@
       "submit": "إرسال المطالبة",
       "success": "تم إرسال المطالبة بنجاح",
       "correlationId": "معرف الربط"
+    },
+    "eligibility": {
+      "title": "التحقق من الأهلية",
+      "intro": "تحقق من تغطية المريض لدى شركة التأمين.",
+      "run": "بدء التحقق",
+      "coverageActive": "التغطية فعّالة",
+      "coverageType": "نوع التغطية",
+      "copayPct": "نسبة المشاركة %",
+      "deductibleRemaining": "الخصم المتبقي",
+      "exclusions": "الاستثناءات",
+      "cacheHit": "نتيجة من الذاكرة المؤقتة",
+      "lastChecked": "آخر تحقق"
+    },
+    "preauth": {
+      "title": "التصريح المسبق",
+      "intro": "قدّم وتابع طلبات التصريح المسبق للخدمات المخطط لها.",
+      "createRequest": "طلب جديد",
+      "requestId": "رقم الطلب",
+      "requested": "تم الطلب",
+      "authorizedQty": "الكمية المصرّح بها",
+      "authorizationNumber": "رقم التصريح",
+      "validUntil": "صالح حتى",
+      "clinicalJustification": "التبرير السريري"
+    },
+    "denials": {
+      "title": "الرفض والاستئناف",
+      "intro": "المطالبات المرفوضة مع إرشادات الاستئناف بالذكاء الاصطناعي.",
+      "categories": "حسب سبب الرفض",
+      "appealGuidance": "إرشادات الاستئناف",
+      "appealAction": "بدء الاستئناف",
+      "deniedOn": "تاريخ الرفض",
+      "reason": "سبب الرفض",
+      "count": "العدد",
+      "totalEgp": "الإجمالي (ج.م.)",
+      "aiSummary": "ملخص الذكاء الاصطناعي للاستئناف",
+      "attachDocs": "إرفاق الوثائق الداعمة",
+      "submitAppeal": "إرسال الاستئناف"
+    },
+    "payments": {
+      "title": "المدفوعات",
+      "intro": "المدفوعات المسواة والتسويات.",
+      "paymentRef": "مرجع الدفع",
+      "paidOn": "تاريخ الدفع",
+      "settledAmount": "المبلغ المسوى",
+      "method": "طريقة الدفع",
+      "reconciliationStatus": "حالة التسوية",
+      "reconciled": "مُسواة",
+      "unreconciled": "معلقة"
+    },
+    "communications": {
+      "title": "المراسلات",
+      "intro": "طلبات المعلومات المتبادلة مع شركات التأمين.",
+      "from": "من",
+      "subject": "الموضوع",
+      "received": "مستلم في",
+      "reply": "رد",
+      "attach": "إرفاق",
+      "noThreads": "لا توجد مراسلات نشطة"
+    },
+    "settings": {
+      "title": "الإعدادات",
+      "profile": "الملف الشخصي",
+      "organization": "المنظمة",
+      "contactEmail": "البريد الإلكتروني",
+      "languagePref": "تفضيل اللغة",
+      "notifications": "الإشعارات",
+      "notifyDenial": "إشعار عند الرفض",
+      "notifyPayment": "إشعار عند الدفع",
+      "notifyComms": "إشعار عند المراسلات",
+      "save": "حفظ الإعدادات"
     }
   },
   "payer": {
@@ -198,6 +268,8 @@
       "similarClaims": "مطالبات مشابهة"
     },
     "analytics": {
+      "title": "التحليلات",
+      "intro": "مؤشرات الأداء وتوزيع المطالبات لشركة التأمين.",
       "lossRatio": "نسبة الخسارة",
       "claimsApprovalRate": "معدل قبول المطالبات",
       "avgProcessingTime": "متوسط زمن المعالجة",
@@ -206,6 +278,40 @@
       "claimsByType": "المطالبات حسب النوع",
       "claimsByGovernorate": "المطالبات حسب المحافظة",
       "aiAccuracy": "دقة الذكاء الاصطناعي"
+    },
+    "preauth": {
+      "title": "مراجعة التصاريح المسبقة",
+      "intro": "راجع طلبات التصريح المسبق مع تقييم الضرورة الطبية بالذكاء الاصطناعي.",
+      "necessityVerdict": "حكم الضرورة الطبية",
+      "necessary": "ضروري طبياً",
+      "needsReview": "يحتاج مراجعة",
+      "notJustified": "غير مبرر",
+      "guidelines": "الإرشادات السريرية المعتمدة",
+      "partialApprove": "موافقة جزئية",
+      "requestMoreInfo": "طلب معلومات إضافية",
+      "authNumber": "رقم التصريح",
+      "validityPeriod": "فترة الصلاحية"
+    },
+    "settled": {
+      "title": "المطالبات المُسواة",
+      "intro": "المطالبات التي تم البت فيها وتسويتها."
+    },
+    "fraud": {
+      "title": "تنبيهات الاحتيال",
+      "intro": "المطالبات التي تم تحديدها بواسطة وكيل اكتشاف الاحتيال (درجة المخاطر > 0.6).",
+      "refer": "إحالة إلى وحدة التحقيق"
+    },
+    "communications": {
+      "title": "المراسلات",
+      "intro": "طلبات المعلومات المعلقة المُرسلة إلى مقدمي الخدمة."
+    },
+    "settings": {
+      "title": "الإعدادات",
+      "adjudicationRules": "قواعد البت",
+      "autoApproveThreshold": "حد الموافقة التلقائية",
+      "autoRoutingEnabled": "التوجيه التلقائي مُفعل",
+      "notifications": "الإشعارات",
+      "save": "حفظ الإعدادات"
     }
   },
   "siu": {
@@ -234,9 +340,40 @@
     },
     "search": {
       "title": "البحث عبر شركات التأمين",
+      "intro": "ابحث في المطالبات عبر جميع شركات التأمين المشاركة حسب مقدم الخدمة أو المريض أو التشخيص أو الإجراء.",
       "searchBy": "بحث حسب…",
       "results": "النتائج",
-      "potentialDuplicate": "تكرار محتمل"
+      "potentialDuplicate": "تكرار محتمل",
+      "providerId": "معرف مقدم الخدمة",
+      "patientNid": "رقم المريض القومي",
+      "icd10": "ICD-10",
+      "procedureCode": "كود الإجراء",
+      "runSearch": "تشغيل البحث"
+    },
+    "investigations": {
+      "title": "التحقيقات",
+      "intro": "قضايا التحقيق في الاحتيال النشطة والتاريخية.",
+      "caseId": "رقم القضية",
+      "assignedTo": "مُعين إلى",
+      "workflowStatus": "حالة سير العمل",
+      "open": "مفتوحة",
+      "underReview": "قيد المراجعة",
+      "referred": "محالة",
+      "closedLegitimate": "مغلقة — شرعية",
+      "closedFraud": "مغلقة — احتيال",
+      "openedOn": "تاريخ الفتح",
+      "financialImpact": "الأثر المالي"
+    },
+    "reports": {
+      "title": "تقارير وحدة التحقيق",
+      "intro": "تقارير التحقيق وتحليل اتجاهات الاحتيال.",
+      "generate": "إنشاء تقرير",
+      "reportType": "نوع التقرير",
+      "weekly": "ملخص أسبوعي للاحتيال",
+      "monthly": "اتجاهات شهرية للاحتيال",
+      "byProvider": "حسب مقدم الخدمة",
+      "history": "سجل التقارير",
+      "download": "تنزيل"
     }
   },
   "regulatory": {
@@ -251,23 +388,52 @@
     },
     "insurers": {
       "title": "مقارنة شركات التأمين",
+      "intro": "جدول مُرتّب لجميع شركات التأمين النشطة مع مقاييس الأداء.",
       "name": "الاسم",
       "claimsVolume": "حجم المطالبات",
       "lossRatio": "نسبة الخسارة",
       "denialRate": "معدل الرفض",
       "processingTime": "زمن المعالجة",
       "fraudRate": "معدل الاحتيال",
-      "aiAccuracy": "دقة الذكاء الاصطناعي"
+      "aiAccuracy": "دقة الذكاء الاصطناعي",
+      "radarTitle": "رسم راداري لشركة التأمين المختارة"
     },
     "geographic": {
       "title": "التحليل الجغرافي",
+      "intro": "مقاييس المطالبات والاحتيال حسب المحافظة المصرية.",
       "selectMetric": "اختر المقياس",
-      "governorate": "المحافظة"
+      "governorate": "المحافظة",
+      "claims": "المطالبات",
+      "denials": "الرفض",
+      "fraudRate": "معدل الاحتيال",
+      "nationalAvg": "المتوسط الوطني"
+    },
+    "fraud": {
+      "title": "الرقابة على الاحتيال",
+      "intro": "اتجاهات الاحتيال على مستوى السوق وفعالية وحدة التحقيق."
+    },
+    "compliance": {
+      "title": "الامتثال",
+      "intro": "حالة امتثال شركات التأمين للمتطلبات التنظيمية للهيئة.",
+      "insurer": "شركة التأمين",
+      "complianceScore": "درجة الامتثال",
+      "lastAudit": "آخر تدقيق",
+      "status": "الحالة",
+      "compliant": "ممتثل",
+      "atRisk": "في خطر",
+      "nonCompliant": "غير ممتثل"
     },
     "reports": {
       "title": "التقارير التنظيمية",
+      "intro": "إنشاء تقارير الامتثال بصيغة PDF عربية وفقاً لمتطلبات الهيئة.",
       "generateNow": "إنشاء الآن",
-      "dataFreshness": "البيانات حتى"
+      "dataFreshness": "البيانات حتى",
+      "reportType": "نوع التقرير",
+      "monthly": "الامتثال الشهري",
+      "quarterly": "السوق الفصلي",
+      "annual": "الملخص السنوي",
+      "scheduled": "التقارير المجدولة",
+      "history": "سجل التقارير"
     }
   }
 }
