@@ -5,6 +5,7 @@ Uses mocked external dependencies — no live services required.
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,7 +13,6 @@ import pytest
 from src.agents.fraud_detection import FEATURE_NAMES, FraudDetectionAgent
 from src.agents.medical_coding import MedicalCodingAgent
 from src.models.schemas import AgentStatus, RiskLevel
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fraud Detection Agent Tests
@@ -364,38 +364,42 @@ class TestPHIRedactor:
 
 class TestNIDValidator:
     def test_valid_14_digit_id(self):
-        from src.models.schemas import EligibilityVerifyRequest, ClaimType
-        from datetime import datetime, timezone
+        from datetime import datetime
+
+        from src.models.schemas import ClaimType, EligibilityVerifyRequest
         req = EligibilityVerifyRequest(
             patient_id="29901011234567",
             payer_id="MISR-001",
             provider_id="HCP-001",
-            service_date=datetime.now(timezone.utc),
+            service_date=datetime.now(UTC),
             claim_type=ClaimType.OUTPATIENT,
         )
         assert req.patient_id == "29901011234567"
 
     def test_invalid_id_rejected(self):
+        from datetime import datetime
+
         import pytest
-        from src.models.schemas import EligibilityVerifyRequest, ClaimType
-        from datetime import datetime, timezone
+
+        from src.models.schemas import ClaimType, EligibilityVerifyRequest
         with pytest.raises(Exception):
             EligibilityVerifyRequest(
                 patient_id="12",
                 payer_id="MISR-001",
                 provider_id="HCP-001",
-                service_date=datetime.now(timezone.utc),
+                service_date=datetime.now(UTC),
                 claim_type=ClaimType.OUTPATIENT,
             )
 
     def test_arabic_indic_nid_normalized(self):
-        from src.models.schemas import EligibilityVerifyRequest, ClaimType
-        from datetime import datetime, timezone
+        from datetime import datetime
+
+        from src.models.schemas import ClaimType, EligibilityVerifyRequest
         req = EligibilityVerifyRequest(
             patient_id="٢٩٩٠١٠١١٢٣٤٥٦٧",
             payer_id="MISR-001",
             provider_id="HCP-001",
-            service_date=datetime.now(timezone.utc),
+            service_date=datetime.now(UTC),
             claim_type=ClaimType.OUTPATIENT,
         )
         assert req.patient_id == "29901011234567"

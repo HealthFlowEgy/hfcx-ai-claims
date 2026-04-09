@@ -7,7 +7,7 @@ POST /internal/ai/agents/necessity/assess
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 
@@ -36,7 +36,7 @@ _API_CALL_ID = "direct-api-call"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @router.post("/eligibility/verify", response_model=EligibilityResult)
@@ -60,6 +60,7 @@ async def verify_eligibility(
         total_amount=0.0,
         claim_date=req.service_date,
         service_date=req.service_date,
+        clinical_notes=None,
     )
     return await agent.verify(claim)
 
@@ -118,6 +119,7 @@ async def score_fraud(
         total_amount=req.total_amount,
         claim_date=req.claim_date,
         service_date=req.service_date,
+        clinical_notes=None,
     )
     return await agent.score(claim)
 

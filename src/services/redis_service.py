@@ -8,12 +8,12 @@ Used for: eligibility cache, agent state checkpointing, fraud provider scores,
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import redis.asyncio as redis
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import get_settings
@@ -43,7 +43,7 @@ def get_redis_pool() -> redis.ConnectionPool:
 async def close_redis_pool() -> None:
     global _redis_pool
     if _redis_pool is not None:
-        await _redis_pool.aclose()
+        await _redis_pool.disconnect()
         _redis_pool = None
 
 
@@ -59,7 +59,8 @@ class RedisService:
 
     async def get(self, key: str) -> str | None:
         try:
-            return await self._client.get(key)
+            val = await self._client.get(key)
+            return str(val) if val is not None else None
         except Exception as exc:
             log.warning("redis_get_failed", key=key, error=str(exc))
             return None
@@ -90,7 +91,7 @@ class RedisService:
         try:
             found: list[str] = []
             async for key in self._client.scan_iter(match=pattern, count=100):
-                found.append(key)
+                found.append(str(key))
             return found
         except Exception as exc:
             log.warning("redis_keys_failed", pattern=pattern, error=str(exc))
@@ -117,7 +118,7 @@ class RedisService:
             return False
 
     async def close(self) -> None:
-        await self._client.aclose()
+        await self._client.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,7 +166,7 @@ class AgentMemoryService:
             "pattern_type": pattern_type.value,
             "confidence": confidence,
             "claim_id": claim_id,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         l1_ok = await self._redis.setex(key, ttl, json.dumps(envelope))
         MEMORY_STORE_OPS.labels(tier="l1", outcome="ok" if l1_ok else "error").inc()

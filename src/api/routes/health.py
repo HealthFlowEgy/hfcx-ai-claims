@@ -73,7 +73,8 @@ async def health_check() -> HealthCheckResponse:
     # Kafka: TCP probe + lag gauge
     kafka_ok = _kafka_tcp_probe()
     try:
-        queue_depth = int(KAFKA_CONSUMER_LAG._value.get())  # type: ignore[attr-defined]
+        _val = getattr(KAFKA_CONSUMER_LAG, '_value', None)
+        queue_depth = int(_val.get()) if _val else 0
     except Exception:
         queue_depth = 0
 

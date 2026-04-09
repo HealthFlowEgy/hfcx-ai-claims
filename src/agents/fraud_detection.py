@@ -21,8 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
 import networkx as nx
 import numpy as np
@@ -30,8 +29,6 @@ import structlog
 from pyod.models.hbos import HBOS
 from pyod.models.iforest import IForest
 from pyod.models.lof import LOF
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.config import get_settings
 from src.models.orm import create_engine_and_session
@@ -177,12 +174,13 @@ class FraudDetectionAgent:
             log.error("fraud_scoring_failed", error=str(exc), claim_id=claim.claim_id)
             return FraudDetectionResult(
                 status=AgentStatus.FAILED,
+                fraud_score=None,
                 error_message=str(exc),
             )
 
     # ── Feature engineering (FR-FD-004: 15+ features) ─────────────────────
     def _engineer_features(self, claim: FHIRClaimBundle) -> np.ndarray:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         claim_date = _ensure_aware(claim.claim_date)
         service_date = _ensure_aware(claim.service_date)
 
@@ -197,17 +195,19 @@ class FraudDetectionAgent:
             float(proc),                                                      # 3  procedure_count
             float(drug),                                                      # 4  drug_count
             float(attach),                                                    # 5  attachment_count
-            1.0 if claim.clinical_notes else 0.0,                             # 6  has_clinical_notes
-            1.0 if claim.prescription_id else 0.0,                            # 7  has_prescription
+            1.0 if claim.clinical_notes else 0.0,               # 6  has_clinical_notes
+            1.0 if claim.prescription_id else 0.0,              # 7  has_prescription
             float((claim_date - service_date).days),                          # 8  claim_lag_days
             float((now - claim_date).days),                                   # 9  days_since_claim
             float(service_date.weekday()),                                    # 10 service_weekday
             1.0 if service_date.weekday() >= 5 else 0.0,                      # 11 is_weekend
             float(service_date.hour),                                         # 12 hour_of_service
-            claim.total_amount / max(diag, 1),                                # 13 amount_per_diagnosis
-            claim.total_amount / max(proc, 1),                                # 14 amount_per_procedure
-            float(hash(claim.claim_type.value) % 10),                         # 15 claim_type_code
-            float(int(hashlib.md5(claim.provider_id.encode()).hexdigest()[:4], 16) % 64),  # 16 provider_hash_bucket
+            claim.total_amount / max(diag, 1),                    # 13 amt_per_diag
+            claim.total_amount / max(proc, 1),                    # 14 amt_per_proc
+            float(hash(claim.claim_type.value) % 10),             # 15 claim_type
+            float(
+                int(hashlib.md5(claim.provider_id.encode()).hexdigest()[:4], 16) % 64
+            ),                                                    # 16 provider_hash
         ]
         arr = np.array(features, dtype=np.float32)
         assert arr.shape[0] >= 15, "FR-FD-004 requires at least 15 features"
@@ -267,19 +267,19 @@ class FraudDetectionAgent:
         fails we still have the in-memory short-circuit.
         """
         window_days = settings.fraud_duplicate_window_days
-        since = datetime.now(timezone.utc) - timedelta(days=window_days)
+        since = datetime.now(UTC) - timedelta(days=window_days)
 
         # Compose SHA-256 hash keyed by patient + service_date + every procedure_code.
         # One procedure_code → one hash row. For multi-line claims we write multiple.
         procedure_codes = claim.procedure_codes or [""]
         hashes: list[str] = []
         for proc in procedure_codes:
-            raw = f"{claim.patient_id}|{_ensure_aware(claim.service_date).date().isoformat()}|{proc}"
+            svc_date = _ensure_aware(claim.service_date).date().isoformat()
+            raw = f"{claim.patient_id}|{svc_date}|{proc}"
             hashes.append(hashlib.sha256(raw.encode()).hexdigest())
 
         try:
             _, session_factory = create_engine_and_session()
-            from src.models.orm import Base
             from sqlalchemy import text
 
             async with session_factory() as session:
@@ -352,10 +352,10 @@ class FraudDetectionAgent:
 
         try:
             iforest_raw = float(
-                FraudDetectionAgent._IFOREST.decision_function(x)[0]  # type: ignore[union-attr]
+                FraudDetectionAgent._IFOREST.decision_function(x)[0]  # noqa
             )
             iforest_score = float(
-                FraudDetectionAgent._IFOREST.predict_proba(x)[:, 1][0]  # type: ignore[union-attr]
+                FraudDetectionAgent._IFOREST.predict_proba(x)[:, 1][0]  # noqa
             )
         except Exception:
             iforest_score = 0.0
@@ -363,14 +363,14 @@ class FraudDetectionAgent:
 
         try:
             lof_score = float(
-                FraudDetectionAgent._LOF.decision_function(x)[0]  # type: ignore[union-attr]
+                FraudDetectionAgent._LOF.decision_function(x)[0]  # noqa
             )
         except Exception:
             lof_score = 0.0
 
         try:
             hbos_score = float(
-                FraudDetectionAgent._HBOS.decision_function(x)[0]  # type: ignore[union-attr]
+                FraudDetectionAgent._HBOS.decision_function(x)[0]  # noqa
             )
         except Exception:
             hbos_score = 0.0
@@ -567,7 +567,7 @@ class FraudDetectionAgent:
         data["claim_count"] += 1
         data["score_sum"] += claim_score
         data["rolling_fraud_score"] = data["score_sum"] / data["claim_count"]
-        data["last_updated"] = datetime.now(timezone.utc).isoformat()
+        data["last_updated"] = datetime.now(UTC).isoformat()
         await self._redis.setex(key, 86400 * 90, json.dumps(data))
 
     # ── FR-FD-005: MedGemma fraud explanation ─────────────────────────────
@@ -610,5 +610,5 @@ class FraudDetectionAgent:
 
 def _ensure_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt

@@ -192,7 +192,8 @@ class MedicalCodingAgent:
         arabic_entities: list[str],
         claim_type: str,
     ) -> dict[str, Any]:
-        prompt = f"""You are an Egyptian healthcare ICD-10 coding expert. Validate the following medical codes.
+        prompt = f"""You are an Egyptian healthcare ICD-10 coding expert. \
+Validate the following medical codes.
 
 Claim type: {claim_type}
 ICD-10 diagnosis codes: {diagnosis_codes}

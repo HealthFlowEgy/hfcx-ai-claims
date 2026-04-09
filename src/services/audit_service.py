@@ -7,7 +7,7 @@ PHI-free audit events for FRA compliance.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -69,7 +69,7 @@ class AuditService:
             "model_used": model_used,
             "fraud_risk_level": fraud_risk_level,
             "decision": decision,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         }
 
         try:

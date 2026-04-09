@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import structlog
@@ -148,7 +148,7 @@ class EligibilityAgent:
                 copay_percentage=data.get("copay_percentage"),
                 exclusions=data.get("exclusions", []),
                 cache_hit=False,
-                checked_at=datetime.now(timezone.utc),
+                checked_at=datetime.now(UTC),
             )
 
         except httpx.HTTPStatusError as exc:
@@ -177,7 +177,10 @@ class EligibilityAgent:
                 status=AgentStatus.COMPLETED,
                 is_eligible=True,
                 coverage_active=True,
-                error_message=f"Registry unavailable — {exc.__class__.__name__}; flagged for review",
+                error_message=(
+                    f"Registry unavailable — {exc.__class__.__name__};"
+                    " flagged for review"
+                ),
             )
 
     async def invalidate_cache(self, patient_id: str, payer_id: str) -> int:

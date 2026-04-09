@@ -4,19 +4,16 @@ Uses testcontainers-python for integration tests (SRS Section 9).
 """
 from __future__ import annotations
 
-import json
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
-from src.config import get_settings
 from src.main import create_app
 from src.models.schemas import ClaimType, FHIRClaimBundle
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sample FHIR Claim fixture (Egyptian healthcare context)

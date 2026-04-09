@@ -63,7 +63,7 @@ class PHIRedactor:
             return self.redact(value)
         if isinstance(value, dict):
             return {k: self.redact_value(k, v) for k, v in value.items()}
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             redacted = [self.redact_value(None, v) for v in value]
             return redacted if isinstance(value, list) else tuple(redacted)
         return value

@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -279,7 +279,7 @@ class ClaimsKafkaConsumer:
                 "original_offset": original_message.offset,
                 "original_value": original_message.value,
                 "error": error_message,
-                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "failed_at": datetime.now(UTC).isoformat(),
                 "ai_layer_version": settings.app_version,
             }
             await self._producer.send_and_wait(

@@ -4,7 +4,6 @@ Kafka I/O is fully mocked — we test the decision flow and DLQ fallback.
 """
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 

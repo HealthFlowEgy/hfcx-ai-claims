@@ -7,7 +7,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn
+from pydantic import AnyHttpUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,14 +35,14 @@ class Settings(BaseSettings):
     workers: int = 4
 
     # ── PostgreSQL ───────────────────────────────────────────────────────
-    database_url: PostgresDsn = Field(
-        default="postgresql+asyncpg://hfcx_ai:password@localhost:5432/hfcx_ai"  # type: ignore[arg-type]
+    database_url: str = Field(
+        default="postgresql+asyncpg://hfcx_ai:password@localhost:5432/hfcx_ai"
     )
     database_pool_size: int = 20
     database_max_overflow: int = 10
 
     # ── Redis ────────────────────────────────────────────────────────────
-    redis_url: RedisDsn = Field(default="redis://localhost:6379/0")  # type: ignore[arg-type]
+    redis_url: str = Field(default="redis://localhost:6379/0")
     # FR-EV-001: eligibility cache TTL is 24 hours
     redis_eligibility_ttl_seconds: int = 86400
     redis_agent_state_ttl_seconds: int = 86400
@@ -133,4 +133,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Cached singleton — safe to call from anywhere."""
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

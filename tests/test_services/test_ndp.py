@@ -3,7 +3,7 @@ Tests for NDPService (FR-MC-003).
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest

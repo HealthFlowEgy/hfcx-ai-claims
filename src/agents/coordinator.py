@@ -20,8 +20,8 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import AsyncExitStack
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -29,15 +29,15 @@ import structlog
 # don't actually touch the graph (unit tests for agents, API tests that
 # stub CoordinatorAgent) can still import this module.
 try:
-    from langgraph.checkpoint.redis.aio import AsyncRedisSaver  # type: ignore
-    from langgraph.graph import END, START, StateGraph  # type: ignore
+    from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+    from langgraph.graph import END, START, StateGraph
     _LANGGRAPH_AVAILABLE = True
 except ImportError:  # pragma: no cover — production deploys always have it
     _LANGGRAPH_AVAILABLE = False
-    AsyncRedisSaver = None  # type: ignore
-    StateGraph = None  # type: ignore
-    START = "__start__"  # type: ignore
-    END = "__end__"  # type: ignore
+    AsyncRedisSaver = None
+    StateGraph = None
+    START = "__start__"
+    END = "__end__"
 
 from src.agents.eligibility import EligibilityAgent
 from src.agents.fraud_detection import FraudDetectionAgent
@@ -266,7 +266,7 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
         "overall_confidence": overall_confidence,
         "requires_human_review": requires_human_review,
         "human_review_reasons": human_review_reasons,
-        "completed_at": datetime.now(timezone.utc),
+        "completed_at": datetime.now(UTC),
     }
 
 
@@ -304,7 +304,7 @@ async def build_coordinator_graph(
             "Install via `pip install -e .` which pulls langgraph 0.6.7+."
         )
 
-    graph: StateGraph = StateGraph(dict)  # type: ignore[misc]
+    graph: StateGraph = StateGraph(dict)
 
     graph.add_node("eligibility", node_eligibility)
     graph.add_node("parallel", node_parallel_agents)
@@ -346,7 +346,7 @@ class CoordinatorAgent:
     compiled graph — see FR-AO-001 latency budget).
     """
 
-    _instance: Optional["CoordinatorAgent"] = None
+    _instance: CoordinatorAgent | None = None
     _lock: asyncio.Lock = asyncio.Lock()
 
     def __init__(self) -> None:
@@ -380,7 +380,7 @@ class CoordinatorAgent:
         initial_state: dict[str, Any] = {
             "claim": claim,
             "correlation_id": claim.hcx_correlation_id,
-            "started_at": datetime.now(timezone.utc),
+            "started_at": datetime.now(UTC),
             "agent_durations_ms": {},
         }
 

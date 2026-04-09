@@ -3,7 +3,6 @@ Unit tests for the EligibilityAgent — cache key shape and cache hit path.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 

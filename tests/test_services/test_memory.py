@@ -3,7 +3,7 @@ Tests for AgentMemoryService (FR-SM-001/002) and AuditService (SEC-003).
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 

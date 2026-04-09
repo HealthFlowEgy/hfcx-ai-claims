@@ -24,7 +24,10 @@ async def _get_jwks() -> dict:
     global _jwks_cache
     if _jwks_cache is None:
         async with httpx.AsyncClient() as client:
-            url = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+            url = (
+                f"{settings.keycloak_url}/realms/{settings.keycloak_realm}"
+                "/protocol/openid-connect/certs"
+            )
             resp = await client.get(url, timeout=5.0)
             resp.raise_for_status()
             _jwks_cache = resp.json()

@@ -217,7 +217,8 @@ class MedicalNecessityAgent:
             or "No guidelines available."
         )
 
-        prompt = f"""You are a senior Egyptian healthcare medical necessity reviewer with expertise in NHIA coverage policies and EDA formulary.
+        prompt = f"""You are a senior Egyptian healthcare medical necessity \
+reviewer with expertise in NHIA coverage policies and EDA formulary.
 
 CLAIM INFORMATION:
 - Claim Type: {claim.claim_type.value}
@@ -280,7 +281,8 @@ Return ONLY a JSON object with this structure:
         )
         confidence = assessment.get("confidence", 0.5)
 
-        prompt = f"""أنت مراجع طبي متخصص. اكتب ملخصاً طبياً موجزاً باللغة العربية لهذه المطالبة التأمينية.
+        prompt = f"""أنت مراجع طبي متخصص. \
+اكتب ملخصاً طبياً موجزاً باللغة العربية لهذه المطالبة التأمينية.
 
 نتيجة التقييم: {verdict_ar}
 مستوى الثقة: {confidence:.0%}

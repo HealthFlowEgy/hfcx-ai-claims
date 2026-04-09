@@ -5,12 +5,11 @@ All schemas mirror the SRS Section 5 data model and Section 6 API spec.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Enumerations
@@ -111,7 +110,9 @@ class FHIRClaimBundle(BaseModel):
 
     # Clinical data
     diagnosis_codes: list[str] = Field(default_factory=list, description="ICD-10 codes")
-    procedure_codes: list[str] = Field(default_factory=list, description="CPT/SNOMED procedure codes")
+    procedure_codes: list[str] = Field(
+        default_factory=list, description="CPT/SNOMED procedure codes"
+    )
     total_amount: float = Field(..., description="Claim total in EGP", ge=0.0)
     claim_date: datetime
     service_date: datetime
@@ -122,7 +123,9 @@ class FHIRClaimBundle(BaseModel):
 
     # Attachments
     attachment_ids: list[str] = Field(default_factory=list, description="MinIO object IDs")
-    clinical_notes: str | None = Field(None, description="Free-text clinical notes (Arabic/English)")
+    clinical_notes: str | None = Field(
+        None, description="Free-text clinical notes (Arabic/English)"
+    )
 
     # Raw FHIR bundle for agents that need full resource access
     raw_fhir_bundle: dict[str, Any] = Field(default_factory=dict)
@@ -158,7 +161,7 @@ class EligibilityResult(BaseModel):
     copay_percentage: float | None = None
     exclusions: list[str] = Field(default_factory=list)
     cache_hit: bool = False
-    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     error_message: str | None = None
 
 
@@ -216,7 +219,7 @@ class ClaimAnalysisState(BaseModel):
     # Input
     claim: FHIRClaimBundle
     correlation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Agent results (populated as graph executes)
     eligibility: EligibilityResult | None = None
@@ -354,7 +357,7 @@ class HealthCheckResponse(BaseModel):
     postgres_connected: bool
     chromadb_connected: bool
     queue_depth: int
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -365,7 +368,7 @@ class KafkaClaimMessage(BaseModel):
     """Message schema for hcx.claims.validated topic."""
     event_type: str = "ClaimReceived"
     schema_version: str = "1.0"
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     payload: dict[str, Any]                   # Raw FHIR bundle
     hcx_headers: dict[str, str] = Field(default_factory=dict)
 
@@ -374,7 +377,7 @@ class KafkaEnrichedClaimMessage(BaseModel):
     """Message schema for hcx.claims.enriched topic."""
     event_type: str = "ClaimEnriched"
     schema_version: str = "1.0"
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     correlation_id: str
     claim_id: str
     hcx_headers: dict[str, str] = Field(default_factory=dict)
