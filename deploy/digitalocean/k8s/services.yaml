@@ -44,49 +44,21 @@ spec:
       protocol: TCP
 
 ---
-# ── DigitalOcean LoadBalancer ────────────────────────────────────────────────
-# Routes external traffic to both backend API and frontend
-apiVersion: v1
-kind: Service
-metadata:
-  name: hfcx-ai-lb
-  namespace: hcx-ai
-  labels:
-    app.kubernetes.io/name: hfcx-ai-claims
-    app.kubernetes.io/component: loadbalancer
-  annotations:
-    # DigitalOcean LB annotations
-    service.beta.kubernetes.io/do-loadbalancer-name: "hfcx-ai-lb"
-    service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
-    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
-    service.beta.kubernetes.io/do-loadbalancer-algorithm: "round_robin"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/internal/ai/health"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-port: "8090"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-protocol: "http"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-check-interval-seconds: "10"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-response-timeout-seconds: "5"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-unhealthy-threshold: "3"
-    service.beta.kubernetes.io/do-loadbalancer-healthcheck-healthy-threshold: "5"
-    # Enable proxy protocol for real client IPs
-    service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
-    # Sticky sessions for WebSocket/SSE
-    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-type: "cookies"
-    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-cookie-name: "HFCX_LB"
-    service.beta.kubernetes.io/do-loadbalancer-sticky-sessions-cookie-ttl: "3600"
-spec:
-  type: LoadBalancer
-  selector:
-    app.kubernetes.io/name: hfcx-ai-claims
-    app.kubernetes.io/component: api
-  ports:
-    - name: api
-      port: 8090
-      targetPort: 8090
-      protocol: TCP
-    - name: frontend
-      port: 80
-      targetPort: 3000
-      protocol: TCP
+# ── LoadBalancer ─────────────────────────────────────────────────────────────
+# NOTE: the public DigitalOcean LoadBalancer is NOT defined here.
+#
+# The deploy workflow installs `ingress-nginx` via Helm. That chart creates
+# its own Service of type LoadBalancer in the `ingress-nginx` namespace with
+# the DigitalOcean annotations we want (proxy-protocol, sticky cookies,
+# health check path, etc — see deploy-digitalocean.yml "Install ingress-nginx"
+# step for the values). nginx-ingress then host-routes external traffic to
+# `hfcx-ai-api` and `hfcx-frontend` via the rules in ingress.yaml.
+#
+# A previous revision of this file defined an `hfcx-ai-lb` Service with a
+# selector on `component: api` AND a frontend port that mapped `80 -> 3000`.
+# That was a silent bug: a Service only forwards traffic to pods matching
+# its selector, so the frontend port could never reach the frontend pods.
+# We removed the Service entirely and rely on nginx-ingress instead.
 
 ---
 # ── PodDisruptionBudget — API ────────────────────────────────────────────────

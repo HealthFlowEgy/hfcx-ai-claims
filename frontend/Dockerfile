@@ -12,6 +12,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+# NEXT_PUBLIC_* env vars must be present at `next build` time — they are
+# inlined into the client bundle. The deploy workflow passes this via
+#   docker build --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.healthflow.eg
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8090
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
