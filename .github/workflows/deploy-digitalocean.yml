@@ -218,7 +218,7 @@ jobs:
       - name: Run migrations
         run: alembic upgrade head
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL_MIGRATE }}
           # Minimum viable Settings — these are required fields on
           # Settings but unused by env.py; provide safe placeholders so
           # pydantic-settings can instantiate without crashing.
