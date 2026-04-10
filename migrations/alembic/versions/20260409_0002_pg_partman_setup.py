@@ -3,6 +3,7 @@
 If the pg_partman extension is available this registers the table as a
 native-range parent and schedules monthly partition creation so the
 audit log never runs out of partitions. If pg_partman is not installed
+or cannot be created (e.g., on managed databases like DigitalOcean),
 the migration is a no-op — operators can still create partitions by
 hand or upgrade later.
 
@@ -25,71 +26,62 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-
-    # Detect pg_partman availability without failing if it's missing.
-    has_partman = bind.exec_driver_sql(
-        "SELECT 1 FROM pg_available_extensions WHERE name = 'pg_partman'"
-    ).first() is not None
-
-    if not has_partman:
-        op.execute(
-            "DO $$ BEGIN RAISE NOTICE "
-            "'pg_partman not available — skipping auto-partition setup'; "
-            "END $$"
-        )
-        return
-
-    op.execute('CREATE EXTENSION IF NOT EXISTS "pg_partman"')
-
-    # Register ai_audit_log as a monthly range-partitioned table.
-    # premake=4 → always keep 4 future partitions ready so we never
-    # block an INSERT waiting for a new month.
+    # Use a single PL/pgSQL block that handles all pg_partman setup.
+    # If the extension cannot be created (missing schema, not available,
+    # insufficient privileges on managed databases), the EXCEPTION handler
+    # catches the error and the migration succeeds as a no-op.
+    # This keeps the transaction clean for asyncpg.
     op.execute(
         """
-        SELECT partman.create_parent(
-            p_parent_table   := 'public.ai_audit_log',
-            p_control        := 'created_at',
-            p_type           := 'native',
-            p_interval       := 'monthly',
-            p_premake        := 4,
-            p_start_partition := TO_CHAR(
-                DATE_TRUNC('month', NOW()), 'YYYY-MM-DD'
-            )
-        )
-        """
-    )
+        DO $$
+        BEGIN
+            -- Attempt to create the extension
+            CREATE EXTENSION IF NOT EXISTS "pg_partman";
 
-    # Retention: keep 24 months of audit log online; older partitions are
-    # detached (not dropped) so compliance officers can re-attach them if
-    # investigators need historical data.
-    op.execute(
-        """
-        UPDATE partman.part_config
-           SET retention = '24 months',
-               retention_keep_table = true,
-               retention_keep_index = true,
-               infinite_time_partitions = true
-         WHERE parent_table = 'public.ai_audit_log'
-        """
-    )
+            -- Register ai_audit_log as monthly range-partitioned
+            PERFORM partman.create_parent(
+                p_parent_table   := 'public.ai_audit_log',
+                p_control        := 'created_at',
+                p_type           := 'native',
+                p_interval       := 'monthly',
+                p_premake        := 4,
+                p_start_partition := TO_CHAR(
+                    DATE_TRUNC('month', NOW()), 'YYYY-MM-DD'
+                )
+            );
 
-    # Seed a background maintenance function. In production, install
-    # pg_partman_bgw + pg_cron or run `SELECT partman.run_maintenance_proc()`
-    # from a scheduled job to create/retire partitions on rolling basis.
-    op.execute(
-        "DO $$ BEGIN RAISE NOTICE 'pg_partman configured for ai_audit_log "
-        "(monthly, premake=4, retention=24 months)'; END $$"
+            -- Retention: keep 24 months online; detach (don't drop) older
+            UPDATE partman.part_config
+               SET retention = '24 months',
+                   retention_keep_table = true,
+                   retention_keep_index = true,
+                   infinite_time_partitions = true
+             WHERE parent_table = 'public.ai_audit_log';
+
+            RAISE NOTICE 'pg_partman configured for ai_audit_log '
+                         '(monthly, premake=4, retention=24 months)';
+
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'pg_partman not available or cannot be created '
+                         '(%) — skipping auto-partition setup. '
+                         'Partitions can be created manually.',
+                         SQLERRM;
+        END
+        $$
+        """
     )
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    has_partman = bind.exec_driver_sql(
-        "SELECT 1 FROM pg_available_extensions WHERE name = 'pg_partman'"
-    ).first() is not None
-    if not has_partman:
-        return
     op.execute(
-        "DELETE FROM partman.part_config WHERE parent_table = 'public.ai_audit_log'"
+        """
+        DO $$
+        BEGIN
+            DELETE FROM partman.part_config
+             WHERE parent_table = 'public.ai_audit_log';
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'pg_partman not available — nothing to downgrade';
+        END
+        $$
+        """
     )
