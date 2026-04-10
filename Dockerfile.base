@@ -1,11 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # HFCX AI Claims — Base Image
-# Pre-installs all Python dependencies (including heavy ML packages like
-# PyTorch, sentence-transformers, ChromaDB, XGBoost, etc.).
+# Pre-installs all Python dependencies (including ML packages).
 #
-# This image is rebuilt only when pyproject.toml changes. The main
-# Dockerfile (Dockerfile) then layers the application source on top,
-# making CI builds complete in < 2 minutes.
+# Uses CPU-only PyTorch (~200 MB vs ~2 GB for CUDA) because the AI models
+# run via Ollama / LiteLLM, not directly in the Python process. The
+# sentence-transformers package still needs torch for embeddings, but
+# CPU inference is sufficient for embedding generation.
+#
+# This image is rebuilt only when pyproject.toml or this file changes.
+# The main Dockerfile layers application source on top for < 2 min builds.
 #
 # Build:
 #   docker build -f Dockerfile.base -t registry.digitalocean.com/hfcx-registry/hfcx-ai-claims-base:latest .
@@ -27,15 +30,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip install --upgrade pip wheel setuptools
 
-# Copy dependency metadata and install all packages
+# ── Step 1: Install CPU-only PyTorch FIRST ────────────────────────────────
+# This prevents sentence-transformers from pulling the full CUDA torch (~2 GB).
+# CPU-only torch is ~200 MB and sufficient for embedding generation.
+RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# ── Step 2: Install all project dependencies ──────────────────────────────
 COPY pyproject.toml README.md ./
 RUN mkdir -p src && touch src/__init__.py && \
     pip install . && \
     rm -rf /build
 
-# Runtime dependencies
+# Clean up build-only packages to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 curl && \
+    apt-get purge -y gcc g++ && \
+    apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
