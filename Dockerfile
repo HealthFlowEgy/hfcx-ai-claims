@@ -16,11 +16,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ libpq-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
-COPY src/ ./src/
+RUN pip install --upgrade pip wheel setuptools
 
-RUN pip install --upgrade pip wheel build && \
-    pip install --prefix=/install .
+# Copy only dependency metadata first for better layer caching.
+# This layer is rebuilt only when pyproject.toml changes, not on
+# every source code edit.
+COPY pyproject.toml README.md ./
+
+# Create a minimal src/ stub so `pip install .` can resolve the package
+# without copying the full source tree into the dependency layer.
+RUN mkdir -p src && touch src/__init__.py
+
+# Install all dependencies (cached unless pyproject.toml changes)
+RUN pip install --prefix=/install .
+
+# Now copy actual source and install the package itself (fast — deps cached)
+COPY src/ ./src/
+RUN pip install --prefix=/install --no-deps .
 
 # ── Stage 2: Production image ─────────────────────────────────────────────────
 FROM python:3.11-slim AS production

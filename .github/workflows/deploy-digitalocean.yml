@@ -112,7 +112,7 @@ jobs:
     needs: [test]
     if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     outputs:
       image_tag: ${{ steps.meta.outputs.version }}
     steps:
