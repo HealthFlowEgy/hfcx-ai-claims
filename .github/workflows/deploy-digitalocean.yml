@@ -277,6 +277,15 @@ jobs:
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-cookie-name"="HFCX_LB" \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-cookie-ttl"="300" \
             --set-string controller.config.use-proxy-protocol="true" \
+            --set-string controller.config.hide-headers="X-Powered-By" \
+            --set-string controller.config.hsts="true" \
+            --set-string controller.config.hsts-max-age="31536000" \
+            --set-string controller.config.hsts-include-subdomains="true" \
+            --set-string controller.config.ssl-redirect="true" \
+            --set controller.addHeaders.X-Frame-Options=DENY \
+            --set controller.addHeaders.X-Content-Type-Options=nosniff \
+            --set controller.addHeaders.X-XSS-Protection="1; mode=block" \
+            --set controller.addHeaders.Referrer-Policy=strict-origin-when-cross-origin \
             --wait --timeout 5m
 
           helm upgrade --install cert-manager jetstack/cert-manager \
