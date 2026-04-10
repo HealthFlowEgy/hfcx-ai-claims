@@ -275,6 +275,7 @@ jobs:
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-enable-proxy-protocol"="true" \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-type"="cookies" \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-cookie-name"="HFCX_LB" \
+            --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-cookie-ttl"="300" \
             --set-string controller.config.use-proxy-protocol="true" \
             --wait --timeout 5m
 
