@@ -23,6 +23,17 @@ spec:
       labels:
         app.kubernetes.io/name: redpanda
     spec:
+      securityContext:
+        fsGroup: 101
+      initContainers:
+        - name: fix-perms
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 101:101 /var/lib/redpanda/data"]
+          volumeMounts:
+            - name: redpanda-data
+              mountPath: /var/lib/redpanda/data
+          securityContext:
+            runAsUser: 0
       containers:
         - name: redpanda
           image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
@@ -167,7 +178,7 @@ spec:
     spec:
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:main-v1.55.5
+          image: ghcr.io/berriai/litellm:main-v1.55.3
           args: ["--config", "/config/litellm_config.yaml"]
           ports:
             - containerPort: 4000
@@ -225,11 +236,11 @@ spec:
             - containerPort: 11434
           resources:
             requests:
-              cpu: "2"
-              memory: 8Gi
+              cpu: 500m
+              memory: 2Gi
             limits:
-              cpu: "4"
-              memory: 16Gi
+              cpu: "2"
+              memory: 4Gi
               # Uncomment for GPU nodes:
               # nvidia.com/gpu: "1"
           volumeMounts:
@@ -291,6 +302,17 @@ spec:
       labels:
         app.kubernetes.io/name: prometheus
     spec:
+      securityContext:
+        fsGroup: 65534
+      initContainers:
+        - name: fix-perms
+          image: busybox:1.36
+          command: ["sh", "-c", "mkdir -p /prometheus/data && chown -R 65534:65534 /prometheus"]
+          volumeMounts:
+            - name: data
+              mountPath: /prometheus
+          securityContext:
+            runAsUser: 0
       containers:
         - name: prometheus
           image: prom/prometheus:v2.53.0
@@ -362,6 +384,17 @@ spec:
       labels:
         app.kubernetes.io/name: grafana
     spec:
+      securityContext:
+        fsGroup: 472
+      initContainers:
+        - name: fix-perms
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 472:472 /var/lib/grafana"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+          securityContext:
+            runAsUser: 0
       containers:
         - name: grafana
           image: grafana/grafana:11.1.0
@@ -470,3 +503,70 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: 4318
+
+---
+# ── Redis Stack (with RediSearch for LangGraph checkpointer) ────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-stack
+  namespace: hcx-ai
+  labels:
+    app.kubernetes.io/name: redis-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-stack
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-stack
+    spec:
+      containers:
+        - name: redis-stack
+          image: redis/redis-stack-server:7.2.0-v6
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-stack
+  namespace: hcx-ai
+spec:
+  selector:
+    app.kubernetes.io/name: redis-stack
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+# ── LiteLLM ConfigMap ──────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: hcx-ai
+data:
+  litellm_config.yaml: |
+    model_list:
+      - model_name: gpt-4
+        litellm_params:
+          model: openai/gpt-4
+          api_key: os.environ/LITELLM_API_KEY
+      - model_name: gpt-3.5-turbo
+        litellm_params:
+          model: openai/gpt-3.5-turbo
+          api_key: os.environ/LITELLM_API_KEY
+    general_settings:
+      master_key: os.environ/LITELLM_API_KEY

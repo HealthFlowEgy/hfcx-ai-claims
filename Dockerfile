@@ -68,7 +68,7 @@ USER hfcx
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8090/internal/ai/health || exit 1
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8090", \
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8090", \
      "--workers", "4", "--log-level", "info"]
 
 EXPOSE 8090
