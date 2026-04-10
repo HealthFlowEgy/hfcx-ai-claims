@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HFCX AI Claims — Build Base Image
+#
+# Builds and pushes the heavy base image (Python + all ML dependencies)
+# to DOCR. The main deploy workflow's Dockerfile inherits FROM this image,
+# so app-layer builds complete in < 2 minutes.
+#
+# Triggers:
+#   - Manual dispatch (rebuild on demand)
+#   - Push to main when pyproject.toml changes (dependency update)
+# ─────────────────────────────────────────────────────────────────────────────
+name: Build Base Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'Dockerfile.base'
+
+env:
+  REGISTRY: registry.digitalocean.com/hfcx-registry
+  BASE_IMAGE: hfcx-ai-claims-base
+
+jobs:
+  build-base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DOCR
+        run: doctl registry login --expiry-seconds 3600
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.BASE_IMAGE }}:latest
+            ${{ env.REGISTRY }}/${{ env.BASE_IMAGE }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.BASE_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.BASE_IMAGE }}:buildcache,mode=max

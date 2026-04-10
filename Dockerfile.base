@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HFCX AI Claims — Base Image
+# Pre-installs all Python dependencies (including heavy ML packages like
+# PyTorch, sentence-transformers, ChromaDB, XGBoost, etc.).
+#
+# This image is rebuilt only when pyproject.toml changes. The main
+# Dockerfile (Dockerfile) then layers the application source on top,
+# making CI builds complete in < 2 minutes.
+#
+# Build:
+#   docker build -f Dockerfile.base -t registry.digitalocean.com/hfcx-registry/hfcx-ai-claims-base:latest .
+#   docker push registry.digitalocean.com/hfcx-registry/hfcx-ai-claims-base:latest
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.11-slim
+
+WORKDIR /build
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# System dependencies required for building native extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libpq-dev curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip wheel setuptools
+
+# Copy dependency metadata and install all packages
+COPY pyproject.toml README.md ./
+RUN mkdir -p src && touch src/__init__.py && \
+    pip install . && \
+    rm -rf /build
+
+# Runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1001 -s /bin/bash hfcx
