@@ -211,9 +211,9 @@ jobs:
           cache: pip
 
       - name: Install migration dependencies
-        # migrations/alembic/env.py imports src.config + src.models.orm,
-        # so we need the full project installed (not just alembic).
-        run: pip install -e .
+        # migrations/alembic/env.py imports src.config + src.models.orm
+        # and uses async_engine_from_config which requires asyncpg.
+        run: pip install -e . asyncpg
 
       - name: Run migrations
         run: alembic upgrade head
