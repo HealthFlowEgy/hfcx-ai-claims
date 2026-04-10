@@ -296,25 +296,16 @@ jobs:
           if [[ -z "${SECRET_NAME}" ]]; then
             SECRET_NAME="hfcx-registry"
             doctl registry kubernetes-manifest | \
-              kubectl apply --namespace ${{ env.K8S_NAMESPACE }} --force -f - || \
-            doctl registry kubernetes-manifest | \
-              kubectl replace --namespace ${{ env.K8S_NAMESPACE }} -f - || true
+              kubectl apply --namespace ${{ env.K8S_NAMESPACE }} --force -f - || true
           else
-            # Strip resourceVersion and other metadata that causes conflicts
-            kubectl get secret "${SECRET_NAME}" -n default -o json \
-              | python3 -c "
-import json, sys
-s = json.load(sys.stdin)
-s['metadata'] = {'name': s['metadata']['name'], 'namespace': '${{ env.K8S_NAMESPACE }}'}
-print(json.dumps(s))" \
-              | kubectl apply -f - || \
-            kubectl get secret "${SECRET_NAME}" -n default -o json \
-              | python3 -c "
-import json, sys
-s = json.load(sys.stdin)
-s['metadata'] = {'name': s['metadata']['name'], 'namespace': '${{ env.K8S_NAMESPACE }}'}
-print(json.dumps(s))" \
-              | kubectl replace -f - || true
+            # Delete and recreate to avoid resourceVersion conflicts
+            kubectl delete secret "${SECRET_NAME}" -n ${{ env.K8S_NAMESPACE }} --ignore-not-found=true
+            kubectl get secret "${SECRET_NAME}" -n default -o yaml \
+              | sed 's/namespace: default/namespace: ${{ env.K8S_NAMESPACE }}/' \
+              | sed '/resourceVersion:/d' \
+              | sed '/uid:/d' \
+              | sed '/creationTimestamp:/d' \
+              | kubectl create -f -
           fi
 
           # Patch the default ServiceAccount in hcx-ai to use the secret
