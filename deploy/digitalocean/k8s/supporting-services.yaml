@@ -182,6 +182,17 @@ spec:
           args: ["--config", "/config/litellm_config.yaml"]
           ports:
             - containerPort: 4000
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hfcx-ai-secrets
+                  key: LITELLM_API_KEY
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hfcx-ai-secrets
+                  key: LITELLM_API_KEY
           resources:
             requests:
               cpu: 250m
@@ -563,10 +574,8 @@ data:
       - model_name: gpt-4
         litellm_params:
           model: openai/gpt-4
-          api_key: os.environ/LITELLM_API_KEY
       - model_name: gpt-3.5-turbo
         litellm_params:
           model: openai/gpt-3.5-turbo
-          api_key: os.environ/LITELLM_API_KEY
     general_settings:
-      master_key: os.environ/LITELLM_API_KEY
+      master_key: os.environ/LITELLM_MASTER_KEY
