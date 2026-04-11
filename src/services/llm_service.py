@@ -57,7 +57,7 @@ class LLMService:
                 base_url=str(settings.litellm_base_url),
                 timeout=settings.litellm_timeout_seconds,
                 headers={
-                    "Authorization": f"Bearer {settings.litellm_api_key}",
+                    "Authorization": f"Bearer {settings.litellm_master_key}",
                     "Content-Type": "application/json",
                 },
             )

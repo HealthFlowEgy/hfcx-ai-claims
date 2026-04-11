@@ -58,7 +58,8 @@ class Settings(BaseSettings):
 
     # ── LiteLLM Gateway ──────────────────────────────────────────────────
     litellm_base_url: AnyHttpUrl = "http://localhost:4000"  # type: ignore[assignment]
-    litellm_api_key: str = "sk-internal-hfcx"
+    litellm_api_key: str = "sk-internal-hfcx"  # OpenAI key for LiteLLM → OpenAI
+    litellm_master_key: str = "sk-internal-hfcx"  # proxy auth key (reads LITELLM_MASTER_KEY env)
     litellm_coordinator_model: str = "ollama/medgemma:27b"
     litellm_coding_model: str = "ollama/llama3:8b-instruct"
     litellm_arabic_model: str = "ollama/bimediX:8x7b"
