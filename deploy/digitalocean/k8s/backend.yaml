@@ -32,7 +32,7 @@ data:
   LITELLM_BASE_URL: "http://litellm.hcx-ai.svc.cluster.local:4000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger.hcx-ai.svc.cluster.local:4317"
   OTEL_SERVICE_NAME: "hfcx-ai-claims"
-  CORS_ALLOW_ORIGINS: "https://portal.healthflow.eg,http://localhost:3000"
+  CORS_ALLOW_ORIGINS: "https://portal.healthflow.eg"
   ENABLE_FRAUD_AGENT: "true"
   ENABLE_CODING_AGENT: "true"
   ENABLE_ELIGIBILITY_AGENT: "true"
@@ -219,14 +219,18 @@ spec:
             limits:
               cpu: "1"
               memory: 2Gi
+          # Liveness: the consumer writes /tmp/healthy on each successful
+          # message batch (see src/kafka/consumer.py _process_one). If the
+          # file is older than 5 minutes, the probe fails and k8s restarts.
           livenessProbe:
             exec:
               command:
-                - python
+                - sh
                 - -c
-                - "import sys; sys.exit(0)"
-            initialDelaySeconds: 30
-            periodSeconds: 60
+                - "test $(( $(date +%s) - $(stat -c %Y /tmp/healthy 2>/dev/null || echo 0) )) -lt 300"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
       nodeSelector:
         workload: general
 
@@ -261,6 +265,11 @@ metadata:
   namespace: hcx-ai
   labels:
     app.kubernetes.io/name: hfcx-ai-claims
+# Belt-and-suspenders: the deploy workflow's "copy DOCR pull secret" step
+# may create the secret under either name depending on what exists in the
+# default namespace. Both are listed so the SA works regardless. One will
+# always be a dangling reference — Kubernetes silently ignores missing
+# imagePullSecrets on a ServiceAccount.
 imagePullSecrets:
   - name: registry-hfcx-registry
   - name: hfcx-registry

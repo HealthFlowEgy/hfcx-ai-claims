@@ -17,6 +17,7 @@ import asyncio
 import json
 import signal
 from datetime import UTC, datetime
+from pathlib import Path
 
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -135,6 +136,10 @@ class ClaimsKafkaConsumer:
                     await self._process_one(message)
             finally:
                 otel_context.detach(token)
+
+            # Touch liveness heartbeat file so the k8s exec probe
+            # can verify the consumer loop is still making progress.
+            Path("/tmp/healthy").touch()
 
             # Update lag gauge for HPA hint
             try:

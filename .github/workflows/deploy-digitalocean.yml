@@ -8,10 +8,13 @@
 # Prerequisites (GitHub Secrets):
 #   DIGITALOCEAN_ACCESS_TOKEN  — DO API token (read+write)
 #   DIGITALOCEAN_CLUSTER_NAME  — DOKS cluster name (e.g., hfcx-ai-claims-staging)
-#   DATABASE_URL               — Managed PG connection string
-#   REDIS_URL                  — Managed Redis connection string
+#   DATABASE_URL               — Managed PG connection string (private VPC)
+#   DATABASE_URL_MIGRATE       — Managed PG connection string (public, for GHA)
 #   SECRET_KEY                 — App secret key (32+ chars)
 #   KEYCLOAK_CLIENT_SECRET     — Keycloak service account secret
+#   MONITORING_PASSWORD        — Basic-auth password for monitoring ingress
+#   GRAFANA_ADMIN_PASSWORD     — Grafana admin login password
+#   LITELLM_API_KEY            — LiteLLM proxy master key
 # ─────────────────────────────────────────────────────────────────────────────
 name: Deploy to DigitalOcean
 
@@ -334,13 +337,28 @@ jobs:
             --from-literal=NDP_API_KEY="${{ secrets.NDP_API_KEY || '' }}" \
             --from-literal=MINIO_ACCESS_KEY="${{ secrets.MINIO_ACCESS_KEY || 'minioadmin' }}" \
             --from-literal=MINIO_SECRET_KEY="${{ secrets.MINIO_SECRET_KEY || 'minioadmin' }}" \
+            --from-literal=GRAFANA_ADMIN_PASSWORD="${{ secrets.GRAFANA_ADMIN_PASSWORD || 'admin' }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create monitoring basic-auth secret
+        # htpasswd-format secret for nginx basic auth on monitoring ingress.
+        # Requires MONITORING_PASSWORD GitHub secret.
+        run: |
+          if ! command -v htpasswd &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq apache2-utils
+          fi
+          MONITORING_PW="${{ secrets.MONITORING_PASSWORD || 'changeme' }}"
+          kubectl create secret generic monitoring-basic-auth \
+            --namespace ${{ env.K8S_NAMESPACE }} \
+            --from-literal=auth="$(htpasswd -nb admin "${MONITORING_PW}")" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Create/update support ConfigMaps from repo files
-        # LiteLLM + Prometheus pods in supporting-services.yaml expect
-        # ConfigMaps that are not defined anywhere else. Build them from
-        # the checked-in config files so a deploy from a clean cluster
-        # can stand up every dependency in one pass.
+        # Single source of truth for LiteLLM + Prometheus configs.
+        # These are built from the checked-in config/ files so a deploy
+        # from a clean cluster can stand up every dependency in one pass.
+        # NOTE: Do NOT define these ConfigMaps inline in
+        # supporting-services.yaml — that would overwrite these on apply.
         run: |
           kubectl create configmap litellm-config \
             --namespace ${{ env.K8S_NAMESPACE }} \

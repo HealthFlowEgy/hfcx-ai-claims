@@ -90,6 +90,10 @@ spec:
 
 ---
 # ── ChromaDB (Vector Store for RAG) ─────────────────────────────────────────
+# NOTE: chromadb/chroma:0.5.5 runs as root by default, so no fix-perms init
+# container is needed. If a future version drops root privileges, add an init
+# container similar to Redpanda/Grafana/Prometheus above with the appropriate
+# UID (check the image's Dockerfile).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -159,6 +163,10 @@ spec:
 
 ---
 # ── LiteLLM Gateway ─────────────────────────────────────────────────────────
+# NOTE: The LiteLLM ConfigMap is created by the deploy workflow step
+# "Create/update support ConfigMaps from repo files" from
+# config/litellm_config.yaml. Do NOT define an inline ConfigMap here to
+# avoid a double-definition that overwrites the repo-sourced version.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -332,6 +340,9 @@ spec:
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.retention.time=30d
+            # Fix #3: sub-path routing behind monitoring ingress
+            - --web.external-url=https://monitoring.healthflow.eg/prometheus
+            - --web.route-prefix=/prometheus
           resources:
             requests:
               cpu: 250m
@@ -412,11 +423,17 @@ spec:
           ports:
             - containerPort: 3000
           env:
+            # Fix #4: dedicated Grafana admin password (not SECRET_KEY)
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: hfcx-ai-secrets
-                  key: SECRET_KEY
+                  key: GRAFANA_ADMIN_PASSWORD
+            # Fix #3: sub-path routing behind monitoring ingress
+            - name: GF_SERVER_ROOT_URL
+              value: "https://monitoring.healthflow.eg/grafana"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
           resources:
             requests:
               cpu: 100m
@@ -488,6 +505,11 @@ spec:
           env:
             - name: COLLECTOR_OTLP_ENABLED
               value: "true"
+            # Fix #3: sub-path routing behind monitoring ingress
+            - name: QUERY_BASE_PATH
+              value: "/jaeger"
+          args:
+            - --query.base-path=/jaeger
           resources:
             requests:
               cpu: 100m
@@ -517,6 +539,9 @@ spec:
 
 ---
 # ── Redis Stack (with RediSearch for LangGraph checkpointer) ────────────────
+# Fix #5: added PVC + AOF persistence so LangGraph checkpoint state survives
+# pod restarts. Also persists agent_memory L1 cache, eligibility cache,
+# duplicate-claim bloom, and fraud provider scores.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -534,12 +559,24 @@ spec:
       labels:
         app.kubernetes.io/name: redis-stack
     spec:
+      initContainers:
+        - name: fix-perms
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 1000:1000 /data"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 0
       containers:
         - name: redis-stack
           image: redis/redis-stack-server:7.2.0-v6
           ports:
             - containerPort: 6379
               name: redis
+          env:
+            - name: REDIS_ARGS
+              value: "--appendonly yes"
           resources:
             requests:
               cpu: 100m
@@ -547,6 +584,13 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redis-stack-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -560,22 +604,15 @@ spec:
     - name: redis
       port: 6379
       targetPort: 6379
-
 ---
-# ── LiteLLM ConfigMap ──────────────────────────────────────────────────────
 apiVersion: v1
-kind: ConfigMap
+kind: PersistentVolumeClaim
 metadata:
-  name: litellm-config
+  name: redis-stack-pvc
   namespace: hcx-ai
-data:
-  litellm_config.yaml: |
-    model_list:
-      - model_name: gpt-4
-        litellm_params:
-          model: openai/gpt-4
-      - model_name: gpt-3.5-turbo
-        litellm_params:
-          model: openai/gpt-3.5-turbo
-    general_settings:
-      master_key: os.environ/LITELLM_MASTER_KEY
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: do-block-storage
+  resources:
+    requests:
+      storage: 10Gi

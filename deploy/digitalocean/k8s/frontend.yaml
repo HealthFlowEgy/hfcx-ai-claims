@@ -39,9 +39,11 @@ spec:
             - containerPort: 3000
               name: http
               protocol: TCP
+          # NOTE: NEXT_PUBLIC_API_BASE_URL is baked into the JS bundle at
+          # build time (Next.js inlines NEXT_PUBLIC_* during `next build`).
+          # Setting it here as a runtime env var has no effect. The actual
+          # value is set via the build-arg in deploy-digitalocean.yml.
           env:
-            - name: NEXT_PUBLIC_API_BASE_URL
-              value: "http://hfcx-ai-api.hcx-ai.svc.cluster.local:8090"
             - name: NODE_ENV
               value: "production"
           resources:
