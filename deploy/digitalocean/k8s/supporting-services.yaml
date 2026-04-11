@@ -191,11 +191,15 @@ spec:
           ports:
             - containerPort: 4000
           env:
+            # OPENAI_API_KEY: used by LiteLLM to authenticate with OpenAI
+            # for all openai/* models in the config.
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: hfcx-ai-secrets
                   key: LITELLM_API_KEY
+            # LITELLM_MASTER_KEY: used by config/litellm_config.yaml via
+            # os.environ/LITELLM_MASTER_KEY to authenticate proxy clients.
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -341,7 +345,7 @@ spec:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.retention.time=30d
             # Fix #3: sub-path routing behind monitoring ingress
-            - --web.external-url=https://monitoring.healthflow.eg/prometheus
+            - --web.external-url=https://monitoring.claim.healthflow.tech/prometheus
             - --web.route-prefix=/prometheus
           resources:
             requests:
@@ -431,7 +435,7 @@ spec:
                   key: GRAFANA_ADMIN_PASSWORD
             # Fix #3: sub-path routing behind monitoring ingress
             - name: GF_SERVER_ROOT_URL
-              value: "https://monitoring.healthflow.eg/grafana"
+              value: "https://monitoring.claim.healthflow.tech/grafana"
             - name: GF_SERVER_SERVE_FROM_SUB_PATH
               value: "true"
           resources:
@@ -505,10 +509,8 @@ spec:
           env:
             - name: COLLECTOR_OTLP_ENABLED
               value: "true"
-            # Fix #3: sub-path routing behind monitoring ingress
-            - name: QUERY_BASE_PATH
-              value: "/jaeger"
           args:
+            # Fix #3: sub-path routing behind monitoring ingress
             - --query.base-path=/jaeger
           resources:
             requests:

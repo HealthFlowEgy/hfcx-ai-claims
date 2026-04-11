@@ -60,12 +60,15 @@ class ClaimsKafkaConsumer:
     6. On failure: publish to hcx.claims.ai.dlq (dead letter queue)
     """
 
+    _HEARTBEAT_FILE = Path("/tmp/healthy")
+
     def __init__(self) -> None:
         self._coordinator = get_coordinator()
         self._fhir_parser = FHIRClaimParser()
         self._consumer: AIOKafkaConsumer | None = None
         self._producer: AIOKafkaProducer | None = None
         self._running = False
+        self._heartbeat_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         self._consumer = AIOKafkaConsumer(
@@ -92,6 +95,8 @@ class ClaimsKafkaConsumer:
         await AuditService.start()
         await self._coordinator.ensure_ready()
         self._running = True
+        self._HEARTBEAT_FILE.touch()
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         log.info(
             "kafka_consumer_started",
             topic=settings.kafka_topic_claims_validated,
@@ -100,6 +105,9 @@ class ClaimsKafkaConsumer:
 
     async def stop(self) -> None:
         self._running = False
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            self._heartbeat_task = None
         if self._consumer:
             await self._consumer.stop()
         if self._producer:
@@ -107,6 +115,16 @@ class ClaimsKafkaConsumer:
         await AuditService.stop()
         await shutdown_coordinator()
         log.info("kafka_consumer_stopped")
+
+    async def _heartbeat_loop(self) -> None:
+        """Background task: touch /tmp/healthy every 30s so the k8s
+        liveness probe succeeds even when the topic is idle."""
+        try:
+            while self._running:
+                self._HEARTBEAT_FILE.touch()
+                await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            pass
 
     async def run(self) -> None:
         """Main message processing loop."""
@@ -137,9 +155,9 @@ class ClaimsKafkaConsumer:
             finally:
                 otel_context.detach(token)
 
-            # Touch liveness heartbeat file so the k8s exec probe
-            # can verify the consumer loop is still making progress.
-            Path("/tmp/healthy").touch()
+            # Also touch heartbeat on every message (supplements the
+            # background _heartbeat_loop for extra responsiveness).
+            self._HEARTBEAT_FILE.touch()
 
             # Update lag gauge for HPA hint
             try:

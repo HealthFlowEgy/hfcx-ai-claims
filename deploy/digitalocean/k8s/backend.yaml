@@ -32,7 +32,7 @@ data:
   LITELLM_BASE_URL: "http://litellm.hcx-ai.svc.cluster.local:4000"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger.hcx-ai.svc.cluster.local:4317"
   OTEL_SERVICE_NAME: "hfcx-ai-claims"
-  CORS_ALLOW_ORIGINS: "https://portal.healthflow.eg"
+  CORS_ALLOW_ORIGINS: "https://portal.claim.healthflow.tech"
   ENABLE_FRAUD_AGENT: "true"
   ENABLE_CODING_AGENT: "true"
   ENABLE_ELIGIBILITY_AGENT: "true"

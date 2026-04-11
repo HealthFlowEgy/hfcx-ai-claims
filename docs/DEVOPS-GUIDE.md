@@ -141,7 +141,7 @@ KAFKA_BOOTSTRAP_SERVERS            # kafka:9092
 LITELLM_BASE_URL                   # http://litellm.hcx-ai.svc:4000
 LITELLM_API_KEY
 CHROMA_HOST                        # chromadb.hcx-ai.svc
-KEYCLOAK_URL                       # https://auth.healthflow.eg
+KEYCLOAK_URL                       # https://auth.healthflow.tech
 KEYCLOAK_CLIENT_SECRET
 NDP_API_URL                        # http://ndp.hcx.svc/ndp/v1
 NDP_API_KEY
@@ -157,9 +157,9 @@ from a Kubernetes ConfigMap (non-secret) and a Secret (client secret):
 
 ```yaml
 # ConfigMap
-NEXT_PUBLIC_API_BASE_URL:   https://api.hcx.healthflow.eg
+NEXT_PUBLIC_API_BASE_URL:   https://api.claim.healthflow.tech
 NEXT_PUBLIC_APP_ENV:        production
-KEYCLOAK_URL:               https://auth.healthflow.eg
+KEYCLOAK_URL:               https://auth.healthflow.tech
 KEYCLOAK_REALM:             hcx
 KEYCLOAK_CLIENT_ID:         hfcx-frontend
 

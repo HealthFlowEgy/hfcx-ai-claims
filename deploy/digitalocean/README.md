@@ -218,9 +218,9 @@ kubectl get svc -n ingress-nginx ingress-nginx-controller \
 
 | Record | Type | Value |
 |--------|------|-------|
-| `portal.healthflow.eg` | A | `<LB_IP>` |
-| `api.healthflow.eg` | A | `<LB_IP>` |
-| `monitoring.healthflow.eg` | A | `<LB_IP>` |
+| `portal.claim.healthflow.tech` | A | `<LB_IP>` |
+| `api.claim.healthflow.tech` | A | `<LB_IP>` |
+| `monitoring.claim.healthflow.tech` | A | `<LB_IP>` |
 
 ---
 

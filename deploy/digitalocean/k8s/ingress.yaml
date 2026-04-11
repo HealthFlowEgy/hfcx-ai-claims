@@ -21,7 +21,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: devops@healthflow.eg
+    email: devops@healthflow.tech
     privateKeySecretRef:
       name: letsencrypt-prod-key
     solvers:
@@ -37,7 +37,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: devops@healthflow.eg
+    email: devops@healthflow.tech
     privateKeySecretRef:
       name: letsencrypt-staging-key
     solvers:
@@ -67,10 +67,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - portal.healthflow.eg
+        - portal.claim.healthflow.tech
       secretName: hfcx-frontend-tls
   rules:
-    - host: portal.healthflow.eg
+    - host: portal.claim.healthflow.tech
       http:
         paths:
           - path: /
@@ -103,16 +103,16 @@ metadata:
     nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
     # CORS
     nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "https://portal.healthflow.eg"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://portal.claim.healthflow.tech"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type, X-Request-ID"
 spec:
   tls:
     - hosts:
-        - api.healthflow.eg
+        - api.claim.healthflow.tech
       secretName: hfcx-api-tls
   rules:
-    - host: api.healthflow.eg
+    - host: api.claim.healthflow.tech
       http:
         paths:
           - path: /internal/ai
@@ -141,10 +141,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - monitoring.healthflow.eg
+        - monitoring.claim.healthflow.tech
       secretName: hfcx-monitoring-tls
   rules:
-    - host: monitoring.healthflow.eg
+    - host: monitoring.claim.healthflow.tech
       http:
         paths:
           - path: /grafana

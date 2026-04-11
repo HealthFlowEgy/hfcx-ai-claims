@@ -13,8 +13,8 @@ metadata:
 data:
   NODE_ENV: "production"
   NEXT_TELEMETRY_DISABLED: "1"
-  NEXT_PUBLIC_API_BASE_URL: "https://api.healthflow.eg"
-  KEYCLOAK_URL: "https://auth.healthflow.eg"
+  NEXT_PUBLIC_API_BASE_URL: "https://api.claim.healthflow.tech"
+  KEYCLOAK_URL: "https://auth.healthflow.tech"
   KEYCLOAK_REALM: "hcx"
   KEYCLOAK_CLIENT_ID: "hfcx-frontend"
 
@@ -120,10 +120,10 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-    - hosts: ["portal.healthflow.eg"]
+    - hosts: ["portal.claim.healthflow.tech"]
       secretName: hfcx-frontend-tls
   rules:
-    - host: portal.healthflow.eg
+    - host: portal.claim.healthflow.tech
       http:
         paths:
           - path: /

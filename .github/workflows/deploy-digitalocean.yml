@@ -194,7 +194,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NEXT_PUBLIC_API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.healthflow.eg' }}
+            NEXT_PUBLIC_API_BASE_URL=${{ vars.API_BASE_URL || 'https://api.claim.healthflow.tech' }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:buildcache,mode=max
 
