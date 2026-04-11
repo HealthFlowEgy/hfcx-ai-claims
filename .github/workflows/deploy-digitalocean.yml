@@ -14,7 +14,8 @@
 #   KEYCLOAK_CLIENT_SECRET     — Keycloak service account secret
 #   MONITORING_PASSWORD        — Basic-auth password for monitoring ingress
 #   GRAFANA_ADMIN_PASSWORD     — Grafana admin login password
-#   LITELLM_API_KEY            — LiteLLM proxy master key
+#   LITELLM_API_KEY            — OpenAI API key (used by LiteLLM to call OpenAI)
+#   LITELLM_MASTER_KEY          — LiteLLM proxy auth key (internal, NOT the OpenAI key)
 # ─────────────────────────────────────────────────────────────────────────────
 name: Deploy to DigitalOcean
 
@@ -334,6 +335,7 @@ jobs:
             --from-literal=SECRET_KEY="${{ secrets.SECRET_KEY }}" \
             --from-literal=KEYCLOAK_CLIENT_SECRET="${{ secrets.KEYCLOAK_CLIENT_SECRET }}" \
             --from-literal=LITELLM_API_KEY="${{ secrets.LITELLM_API_KEY || 'sk-internal-hfcx' }}" \
+            --from-literal=LITELLM_MASTER_KEY="${{ secrets.LITELLM_MASTER_KEY || 'sk-litellm-change-me' }}" \
             --from-literal=NDP_API_KEY="${{ secrets.NDP_API_KEY || '' }}" \
             --from-literal=MINIO_ACCESS_KEY="${{ secrets.MINIO_ACCESS_KEY || 'minioadmin' }}" \
             --from-literal=MINIO_SECRET_KEY="${{ secrets.MINIO_SECRET_KEY || 'minioadmin' }}" \

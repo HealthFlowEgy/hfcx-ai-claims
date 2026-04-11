@@ -200,11 +200,13 @@ spec:
                   key: LITELLM_API_KEY
             # LITELLM_MASTER_KEY: used by config/litellm_config.yaml via
             # os.environ/LITELLM_MASTER_KEY to authenticate proxy clients.
+            # Deliberately separate from OPENAI_API_KEY so a container
+            # compromise doesn't expose the OpenAI billing key.
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: hfcx-ai-secrets
-                  key: LITELLM_API_KEY
+                  key: LITELLM_MASTER_KEY
           resources:
             requests:
               cpu: 250m
@@ -235,6 +237,9 @@ spec:
 
 ---
 # ── Ollama (LLM Runtime) ────────────────────────────────────────────────────
+# Currently scaled to 0: all LLM traffic routes to OpenAI via LiteLLM.
+# To re-enable local inference, set replicas: 1 and uncomment the Ollama
+# model entries in config/litellm_config.yaml.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -243,7 +248,7 @@ metadata:
   labels:
     app.kubernetes.io/name: ollama
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: ollama

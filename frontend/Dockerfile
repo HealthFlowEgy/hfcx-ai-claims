@@ -15,7 +15,7 @@ COPY . .
 
 # NEXT_PUBLIC_* env vars must be present at `next build` time — they are
 # inlined into the client bundle. The deploy workflow passes this via
-#   docker build --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.healthflow.eg
+#   docker build --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.claim.healthflow.tech
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8090
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 

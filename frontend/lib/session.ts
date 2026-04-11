@@ -43,7 +43,7 @@ export function devSession(): SessionUser {
     id: 'dev-user',
     name: 'Dev Operator',
     organization: 'HealthFlow',
-    email: 'dev@healthflow.io',
+    email: 'dev@healthflow.tech',
     roles: ['hcx_admin'],
   };
 }
