@@ -16,7 +16,9 @@ metadata:
     app.kubernetes.io/name: hfcx-ai-claims
     app.kubernetes.io/component: config
 data:
-  APP_ENV: "${ENVIRONMENT}"
+  # Set to "development" to bypass Keycloak JWT verification (no IdP deployed yet).
+  # Switch to "${ENVIRONMENT}" once Keycloak is provisioned and configured.
+  APP_ENV: "development"
   APP_NAME: "hfcx-ai-claims"
   LOG_LEVEL: "INFO"
   HOST: "0.0.0.0"
