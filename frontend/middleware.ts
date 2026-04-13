@@ -59,10 +59,18 @@ export function middleware(request: NextRequest) {
     const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
     const clientId =
       process.env.KEYCLOAK_CLIENT_ID ?? 'hfcx-portal';
-    const redirect = encodeURIComponent(request.nextUrl.toString());
+
+    // Build the redirect URI using the public portal base URL.
+    // request.nextUrl.toString() returns the internal container address
+    // (e.g. https://0.0.0.0:3000/provider), so we construct the
+    // external URL from PORTAL_BASE_URL or the X-Forwarded-Host header.
+    const portalBase =
+      process.env.PORTAL_BASE_URL ?? 'https://portal.claim.healthflow.tech';
+    const redirectUri = encodeURIComponent(`${portalBase}${pathname}`);
+
     const login =
       `${keycloakUrl}/realms/${realm}/protocol/openid-connect/auth` +
-      `?client_id=${clientId}&response_type=code&scope=openid&redirect_uri=${redirect}`;
+      `?client_id=${clientId}&response_type=code&scope=openid&redirect_uri=${redirectUri}`;
     return NextResponse.redirect(login);
   }
 

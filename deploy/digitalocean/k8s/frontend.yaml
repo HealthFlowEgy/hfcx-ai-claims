@@ -52,6 +52,8 @@ spec:
               value: "hcx"
             - name: KEYCLOAK_CLIENT_ID
               value: "hfcx-portal"
+            - name: PORTAL_BASE_URL
+              value: "https://portal.claim.healthflow.tech"
           resources:
             requests:
               cpu: 200m
