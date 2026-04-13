@@ -124,6 +124,77 @@ def _fetch_s3(bucket: str, key: str, dst: Path) -> None:
     log.info("model_store_s3_fetch", bucket=bucket, key=key, dst=str(dst))
 
 
+def upload_to_minio(
+    bucket: str,
+    key: str,
+    file_path: Path,
+    content_type: str = "application/octet-stream",
+) -> str:
+    """
+    Upload a local file to MinIO. Returns the ``minio://bucket/key`` URI.
+    Raises ModelStoreError on failure.
+
+    Used for:
+      - Persisting trained model weights (Phase 2 XGBoost retraining)
+      - Storing claim attachment documents (FR-PP-004)
+    """
+    try:
+        from minio import Minio
+    except ImportError as exc:
+        raise ModelStoreError(
+            "minio client is not installed — cannot upload. "
+            "Install the `minio` package to enable MinIO storage."
+        ) from exc
+
+    if not file_path.is_file():
+        raise ModelStoreError(f"source file not found: {file_path}")
+
+    client = Minio(
+        settings.minio_endpoint,
+        access_key=settings.minio_access_key,
+        secret_key=settings.minio_secret_key,
+        secure=settings.minio_secure,
+    )
+
+    # Ensure bucket exists
+    try:
+        if not client.bucket_exists(bucket):
+            client.make_bucket(bucket)
+    except Exception as exc:
+        log.warning("minio_bucket_create_failed", bucket=bucket, error=str(exc))
+
+    try:
+        client.fput_object(bucket, key, str(file_path), content_type=content_type)
+    except Exception as exc:
+        raise ModelStoreError(
+            f"failed to upload to minio://{bucket}/{key}: {exc}"
+        ) from exc
+
+    uri = f"minio://{bucket}/{key}"
+    log.info("model_store_minio_upload", bucket=bucket, key=key, uri=uri)
+    return uri
+
+
+def upload_document(
+    filename: str,
+    file_path: Path,
+    content_type: str = "application/pdf",
+) -> str:
+    """
+    Upload a claim document to the documents bucket (SRS FR-PP-004).
+    Returns the ``minio://claim-documents/<key>`` URI.
+    """
+    import uuid
+
+    key = f"documents/{uuid.uuid4().hex[:12]}/{filename}"
+    return upload_to_minio(
+        bucket=settings.minio_bucket_documents,
+        key=key,
+        file_path=file_path,
+        content_type=content_type,
+    )
+
+
 def clear_cache() -> int:
     """Remove cached artifacts. Returns the number of files deleted."""
     cache_dir = Path(tempfile.gettempdir()) / "hfcx-ai-model-cache"

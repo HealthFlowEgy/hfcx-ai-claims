@@ -1,10 +1,12 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useQuery } from '@tanstack/react-query';
+import { useLocale, useTranslations } from 'next-intl';
 import { MessageSquare } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
+import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 
 type Thread = {
@@ -16,38 +18,25 @@ type Thread = {
   awaiting_response: boolean;
 };
 
-const SEED: Thread[] = [
-  {
-    id: 't-1',
-    subject: 'Operative notes requested',
-    claim_id: 'CLAIM-2026-0042',
-    provider: 'Kasr El Aini Hospital',
-    sent_at: new Date(Date.now() - 3 * 3600000).toISOString(),
-    awaiting_response: true,
-  },
-  {
-    id: 't-2',
-    subject: 'Clarify secondary CPT',
-    claim_id: 'CLAIM-2026-0038',
-    provider: 'Alexandria Medical Center',
-    sent_at: new Date(Date.now() - 86400000).toISOString(),
-    awaiting_response: false,
-  },
-  {
-    id: 't-3',
-    subject: 'Supporting lab results needed',
-    claim_id: 'CLAIM-2026-0035',
-    provider: 'Luxor Clinic',
-    sent_at: new Date(Date.now() - 2 * 86400000).toISOString(),
-    awaiting_response: true,
-  },
-];
-
 export default function PayerCommunicationsPage() {
   const t = useTranslations('payer.communications');
   const tLoc = useTranslations('common');
-  const locale = (typeof document !== 'undefined' &&
-    document.documentElement.lang) as 'ar' | 'en';
+  const locale = useLocale() as 'ar' | 'en';
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['payer', 'communications'],
+    queryFn: () => api.payerCommunications(),
+  });
+
+  const threads: Thread[] = data?.threads ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tLoc('loading')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -57,7 +46,7 @@ export default function PayerCommunicationsPage() {
       </header>
 
       <div className="space-y-3">
-        {SEED.map((th) => (
+        {threads.map((th) => (
           <Card key={th.id}>
             <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
               <div className="flex items-center gap-3">
@@ -76,7 +65,7 @@ export default function PayerCommunicationsPage() {
                   <Badge variant="warning">{tLoc('loading')}</Badge>
                 )}
                 <span className="text-xs text-hcx-text-muted">
-                  {formatDate(th.sent_at, locale === 'ar' ? 'ar' : 'en')}
+                  {formatDate(th.sent_at, locale)}
                 </span>
               </div>
             </CardHeader>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ClipboardCheck, Plus } from 'lucide-react';
 
@@ -10,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ClaimStatusBadge } from '@/components/shared/claim-status-badge';
+import { api } from '@/lib/api';
 import type { ClaimStatus } from '@/lib/types';
 import { formatDate, formatEgp } from '@/lib/utils';
 
@@ -33,35 +35,17 @@ export default function ProviderPreAuthPage() {
   const tc = useTranslations('common');
   const tClaim = useTranslations('claim');
   const locale = useLocale() as 'ar' | 'en';
+  const queryClient = useQueryClient();
 
-  // Synthetic tracker — a real implementation would hit
-  // /internal/ai/bff/provider/preauth once that endpoint ships.
-  const [requests, setRequests] = useState<PreAuthRequest[]>([
-    {
-      request_id: 'PA-2026-001',
-      claim_type: 'inpatient',
-      patient_nid_masked: '**********4567',
-      icd10: 'M54.5',
-      procedure: 'MRI Lumbar',
-      amount: 4200,
-      status: 'in_review',
-      requested_at: new Date(Date.now() - 86400000).toISOString(),
-      justification: 'Chronic lower back pain failing conservative management.',
-    },
-    {
-      request_id: 'PA-2026-002',
-      claim_type: 'outpatient',
-      patient_nid_masked: '**********8910',
-      icd10: 'E11.9',
-      procedure: 'Continuous glucose monitor',
-      amount: 1800,
-      status: 'approved',
-      requested_at: new Date(Date.now() - 3 * 86400000).toISOString(),
-      authorized_qty: 1,
-      auth_number: 'AUTH-2026-1234',
-      valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
-    },
-  ]);
+  const { data, isLoading } = useQuery({
+    queryKey: ['provider', 'preauth'],
+    queryFn: () => api.providerPreauth(),
+  });
+
+  const requests: PreAuthRequest[] = (data?.items ?? []).map((item) => ({
+    ...item,
+    status: item.status as ClaimStatus,
+  }));
 
   const [showForm, setShowForm] = useState(false);
   const [newReq, setNewReq] = useState({
@@ -72,31 +56,44 @@ export default function ProviderPreAuthPage() {
     justification: '',
   });
 
+  const createMutation = useMutation({
+    mutationFn: (payload: {
+      patient_nid: string;
+      icd10: string;
+      procedure: string;
+      amount: number;
+      justification?: string;
+    }) => api.createPreauth(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['provider', 'preauth'] });
+      setShowForm(false);
+      setNewReq({
+        patient_nid: '',
+        icd10: '',
+        procedure: '',
+        amount: '',
+        justification: '',
+      });
+    },
+  });
+
   const submit = () => {
-    const id = `PA-${Date.now().toString().slice(-6)}`;
-    setRequests([
-      {
-        request_id: id,
-        claim_type: 'outpatient',
-        patient_nid_masked: '**********' + newReq.patient_nid.slice(-4),
-        icd10: newReq.icd10,
-        procedure: newReq.procedure,
-        amount: Number(newReq.amount) || 0,
-        status: 'submitted',
-        requested_at: new Date().toISOString(),
-        justification: newReq.justification,
-      },
-      ...requests,
-    ]);
-    setShowForm(false);
-    setNewReq({
-      patient_nid: '',
-      icd10: '',
-      procedure: '',
-      amount: '',
-      justification: '',
+    createMutation.mutate({
+      patient_nid: newReq.patient_nid,
+      icd10: newReq.icd10,
+      procedure: newReq.procedure,
+      amount: Number(newReq.amount) || 0,
+      justification: newReq.justification || undefined,
     });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -167,7 +164,12 @@ export default function ProviderPreAuthPage() {
               />
             </div>
             <div className="md:col-span-2">
-              <Button onClick={submit}>{tc('submit')}</Button>
+              <Button
+                onClick={submit}
+                disabled={createMutation.isPending}
+              >
+                {tc('submit')}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -210,9 +212,9 @@ export default function ProviderPreAuthPage() {
                   </AlertTitle>
                   <AlertDescription className="text-xs">
                     {t('validUntil')}:{' '}
-                    {r.valid_until ? formatDate(r.valid_until, locale) : '—'}
+                    {r.valid_until ? formatDate(r.valid_until, locale) : '--'}
                     {' · '}
-                    {t('authorizedQty')}: {r.authorized_qty ?? '—'}
+                    {t('authorizedQty')}: {r.authorized_qty ?? '--'}
                   </AlertDescription>
                 </Alert>
               )}

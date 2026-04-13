@@ -90,6 +90,9 @@ dependencies = [
     "faker==30.8.2",
     "mimesis==18.0.0",
     # Note: circuit breaker is a native asyncio implementation — no pybreaker.
+
+    # Object storage (MinIO S3-compatible, for model weights + claim documents)
+    "minio==7.2.9",
 ]
 
 [project.optional-dependencies]

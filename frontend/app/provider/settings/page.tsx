@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Save, User } from 'lucide-react';
 
@@ -8,15 +9,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { api } from '@/lib/api';
 
 export default function ProviderSettingsPage() {
   const t = useTranslations('provider.settings');
   const tc = useTranslations('common');
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['provider', 'settings'],
+    queryFn: () => api.providerSettings(),
+  });
 
   const [profile, setProfile] = useState({
-    name: 'Dr. Fatma Abdelrahman',
-    organization: 'Kasr El Aini Hospital',
-    email: 'fatma.abdelrahman@kasralainy.example.eg',
+    name: '',
+    organization: '',
+    email: '',
     language: 'ar',
   });
   const [notifications, setNotifications] = useState({
@@ -26,11 +34,30 @@ export default function ProviderSettingsPage() {
   });
   const [saved, setSaved] = useState(false);
 
-  const save = () => {
-    // In production: POST /api/bff/provider/settings
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  useEffect(() => {
+    if (data) {
+      setProfile(data.profile);
+      setNotifications(data.notifications);
+    }
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.updateProviderSettings({ profile, notifications }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['provider', 'settings'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -135,7 +162,10 @@ export default function ProviderSettingsPage() {
       </Card>
 
       <div className="flex items-center gap-3">
-        <Button onClick={save}>
+        <Button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+        >
           <Save className="size-4" aria-hidden />
           {t('save')}
         </Button>

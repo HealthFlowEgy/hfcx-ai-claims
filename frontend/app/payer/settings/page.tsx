@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Save, Settings as SettingsIcon } from 'lucide-react';
 
@@ -8,10 +9,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { api } from '@/lib/api';
 
 export default function PayerSettingsPage() {
   const t = useTranslations('payer.settings');
   const tc = useTranslations('common');
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['payer', 'settings'],
+    queryFn: () => api.payerSettings(),
+  });
 
   const [rules, setRules] = useState({
     autoRoutingEnabled: true,
@@ -20,10 +28,37 @@ export default function PayerSettingsPage() {
   });
   const [saved, setSaved] = useState(false);
 
-  const save = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  useEffect(() => {
+    if (data) {
+      setRules({
+        autoRoutingEnabled: data.auto_routing_enabled,
+        autoApproveThreshold: data.auto_approve_threshold,
+        notifyOnHighRisk: data.notify_on_high_risk,
+      });
+    }
+  }, [data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.updatePayerSettings({
+        auto_routing_enabled: rules.autoRoutingEnabled,
+        auto_approve_threshold: rules.autoApproveThreshold,
+        notify_on_high_risk: rules.notifyOnHighRisk,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payer', 'settings'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -90,7 +125,10 @@ export default function PayerSettingsPage() {
       </Card>
 
       <div className="flex items-center gap-3">
-        <Button onClick={save}>
+        <Button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+        >
           <Save className="size-4" aria-hidden />
           {t('save')}
         </Button>

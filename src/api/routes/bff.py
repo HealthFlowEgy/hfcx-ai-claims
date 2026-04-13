@@ -1157,3 +1157,662 @@ async def regulatory_compliance(
             status="non_compliant",
         ),
     ]
+
+
+# ─── BFF: Provider communications ──────────────────────────────────────
+class CommMessage(BaseModel):
+    id: str
+    from_name: str
+    direction: Literal["inbound", "outbound"]
+    body: str
+    sent_at: datetime
+
+
+class CommThread(BaseModel):
+    id: str
+    subject: str
+    payer: str
+    claim_id: str
+    unread: bool
+    messages: list[CommMessage]
+
+
+class ProviderCommunicationsResponse(BaseModel):
+    threads: list[CommThread]
+
+
+@router.get(
+    "/bff/provider/communications",
+    response_model=ProviderCommunicationsResponse,
+)
+async def provider_communications(
+    _: str = Depends(verify_service_jwt),
+) -> ProviderCommunicationsResponse:
+    """Provider communication threads derived from recent claims."""
+    now = datetime.now(UTC)
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.requires_human_review.is_(True))
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(10)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_provider_comms_fallback", error=str(exc))
+        rows = []
+
+    if rows:
+        threads = [
+            CommThread(
+                id=f"t-{i+1}",
+                subject=f"Documentation requested — {r.claim_id}",
+                payer=r.payer_id or "Unknown Payer",
+                claim_id=r.claim_id,
+                unread=i == 0,
+                messages=[
+                    CommMessage(
+                        id=f"m-{i+1}-1",
+                        from_name=r.payer_id or "Payer",
+                        direction="inbound",
+                        body=(
+                            "Please provide the supporting documentation for "
+                            f"claim {r.claim_id} before adjudication can proceed."
+                        ),
+                        sent_at=r.created_at,
+                    ),
+                ],
+            )
+            for i, r in enumerate(rows)
+        ]
+    else:
+        threads = [
+            CommThread(
+                id="t-1",
+                subject="Additional documentation requested",
+                payer="Misr Insurance",
+                claim_id="CLAIM-2026-0042",
+                unread=True,
+                messages=[
+                    CommMessage(
+                        id="m-1",
+                        from_name="Misr Insurance",
+                        direction="inbound",
+                        body=(
+                            "Please provide the operative notes and radiology "
+                            "report for this claim before we can proceed."
+                        ),
+                        sent_at=now - timedelta(hours=3),
+                    ),
+                ],
+            ),
+            CommThread(
+                id="t-2",
+                subject="Pre-auth clarification",
+                payer="Allianz Egypt",
+                claim_id="CLAIM-2026-0038",
+                unread=False,
+                messages=[
+                    CommMessage(
+                        id="m-2",
+                        from_name="Allianz Egypt",
+                        direction="inbound",
+                        body="Kindly confirm the CPT code for the secondary procedure.",
+                        sent_at=now - timedelta(days=1),
+                    ),
+                    CommMessage(
+                        id="m-3",
+                        from_name="Provider",
+                        direction="outbound",
+                        body="Confirmed — secondary procedure is CPT 99215. Chart attached.",
+                        sent_at=now - timedelta(hours=12),
+                    ),
+                ],
+            ),
+        ]
+
+    return ProviderCommunicationsResponse(threads=threads)
+
+
+# ─── BFF: Provider payments ─────────────────────────────────────────────
+class PaymentRecord(BaseModel):
+    payment_ref: str
+    claim_id: str
+    paid_on: datetime
+    settled_amount: float
+    method: str
+    reconciled: bool
+
+
+class ProviderPaymentsResponse(BaseModel):
+    items: list[PaymentRecord]
+
+
+@router.get(
+    "/bff/provider/payments",
+    response_model=ProviderPaymentsResponse,
+)
+async def provider_payments(
+    _: str = Depends(verify_service_jwt),
+) -> ProviderPaymentsResponse:
+    """Payment records derived from approved claims."""
+    now = datetime.now(UTC)
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.adjudication_decision == "approved")
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(20)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_provider_payments_fallback", error=str(exc))
+        rows = []
+
+    if rows:
+        items = [
+            PaymentRecord(
+                payment_ref=f"PAY-{r.claim_id[-8:] if r.claim_id else '00000000'}",
+                claim_id=r.claim_id,
+                paid_on=r.completed_at or r.created_at,
+                settled_amount=float(r.total_amount or 0),
+                method="Bank transfer",
+                reconciled=i < len(rows) - 1,
+            )
+            for i, r in enumerate(rows)
+        ]
+    else:
+        items = [
+            PaymentRecord(
+                payment_ref="PAY-2026-10034",
+                claim_id="CLAIM-2026-0042",
+                paid_on=now - timedelta(days=1),
+                settled_amount=1820.0,
+                method="Bank transfer",
+                reconciled=True,
+            ),
+            PaymentRecord(
+                payment_ref="PAY-2026-10033",
+                claim_id="CLAIM-2026-0038",
+                paid_on=now - timedelta(days=2),
+                settled_amount=2650.0,
+                method="Bank transfer",
+                reconciled=True,
+            ),
+            PaymentRecord(
+                payment_ref="PAY-2026-10032",
+                claim_id="CLAIM-2026-0036",
+                paid_on=now - timedelta(days=3),
+                settled_amount=980.0,
+                method="Bank transfer",
+                reconciled=False,
+            ),
+        ]
+
+    return ProviderPaymentsResponse(items=items)
+
+
+# ─── BFF: Provider pre-auth ─────────────────────────────────────────────
+class PreAuthItem(BaseModel):
+    request_id: str
+    claim_type: str
+    patient_nid_masked: str
+    icd10: str
+    procedure: str
+    amount: float
+    status: str
+    requested_at: datetime
+    authorized_qty: int | None = None
+    auth_number: str | None = None
+    valid_until: datetime | None = None
+    justification: str | None = None
+
+
+class PreAuthListResponse(BaseModel):
+    items: list[PreAuthItem]
+
+
+class CreatePreAuthRequest(BaseModel):
+    patient_nid: str
+    icd10: str
+    procedure: str
+    amount: float
+    justification: str | None = None
+
+
+@router.get(
+    "/bff/provider/preauth",
+    response_model=PreAuthListResponse,
+)
+async def provider_preauth(
+    _: str = Depends(verify_service_jwt),
+) -> PreAuthListResponse:
+    """Pre-auth requests derived from pended claims."""
+    now = datetime.now(UTC)
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.adjudication_decision == "pended")
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(20)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_provider_preauth_fallback", error=str(exc))
+        rows = []
+
+    if rows:
+        items = [
+            PreAuthItem(
+                request_id=f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}",
+                claim_type=r.claim_type or "outpatient",
+                patient_nid_masked=_mask_nid(r.patient_nid_masked or ""),
+                icd10="M54.5",
+                procedure="Pre-authorization review",
+                amount=float(r.total_amount or 0),
+                status="in_review",
+                requested_at=r.created_at,
+                justification="Pending clinical review.",
+            )
+            for r in rows
+        ]
+    else:
+        items = [
+            PreAuthItem(
+                request_id="PA-2026-001",
+                claim_type="inpatient",
+                patient_nid_masked="**********4567",
+                icd10="M54.5",
+                procedure="MRI Lumbar",
+                amount=4200.0,
+                status="in_review",
+                requested_at=now - timedelta(days=1),
+                justification="Chronic lower back pain failing conservative management.",
+            ),
+            PreAuthItem(
+                request_id="PA-2026-002",
+                claim_type="outpatient",
+                patient_nid_masked="**********8910",
+                icd10="E11.9",
+                procedure="Continuous glucose monitor",
+                amount=1800.0,
+                status="approved",
+                requested_at=now - timedelta(days=3),
+                authorized_qty=1,
+                auth_number="AUTH-2026-1234",
+                valid_until=now + timedelta(days=30),
+            ),
+        ]
+
+    return PreAuthListResponse(items=items)
+
+
+@router.post(
+    "/bff/provider/preauth",
+    response_model=PreAuthItem,
+)
+async def create_preauth(
+    req: CreatePreAuthRequest,
+    _: str = Depends(verify_service_jwt),
+) -> PreAuthItem:
+    """Create a new pre-auth request (synthetic — no DB persistence yet)."""
+    now = datetime.now(UTC)
+    nid_masked = _mask_nid(req.patient_nid)
+    return PreAuthItem(
+        request_id=f"PA-{now.strftime('%Y')}-{now.strftime('%f')[:4]}",
+        claim_type="outpatient",
+        patient_nid_masked=nid_masked,
+        icd10=req.icd10,
+        procedure=req.procedure,
+        amount=req.amount,
+        status="submitted",
+        requested_at=now,
+        justification=req.justification,
+    )
+
+
+# ─── BFF: Provider settings ─────────────────────────────────────────────
+class ProviderProfile(BaseModel):
+    name: str
+    organization: str
+    email: str
+    language: str
+
+
+class ProviderNotifications(BaseModel):
+    denial: bool
+    payment: bool
+    comms: bool
+
+
+class ProviderSettings(BaseModel):
+    profile: ProviderProfile
+    notifications: ProviderNotifications
+
+
+@router.get(
+    "/bff/provider/settings",
+    response_model=ProviderSettings,
+)
+async def provider_settings(
+    _: str = Depends(verify_service_jwt),
+) -> ProviderSettings:
+    """Return provider settings (static defaults)."""
+    return ProviderSettings(
+        profile=ProviderProfile(
+            name="Dr. Fatma Abdelrahman",
+            organization="Kasr El Aini Hospital",
+            email="fatma.abdelrahman@kasralainy.example.eg",
+            language="ar",
+        ),
+        notifications=ProviderNotifications(
+            denial=True,
+            payment=True,
+            comms=False,
+        ),
+    )
+
+
+class UpdateProviderSettingsRequest(BaseModel):
+    profile: ProviderProfile
+    notifications: ProviderNotifications
+
+
+@router.put(
+    "/bff/provider/settings",
+    response_model=ProviderSettings,
+)
+async def update_provider_settings(
+    req: UpdateProviderSettingsRequest,
+    _: str = Depends(verify_service_jwt),
+) -> ProviderSettings:
+    """Update provider settings (echo back — no persistence yet)."""
+    return ProviderSettings(
+        profile=req.profile,
+        notifications=req.notifications,
+    )
+
+
+# ─── BFF: Payer communications ──────────────────────────────────────────
+class PayerCommThread(BaseModel):
+    id: str
+    subject: str
+    claim_id: str
+    provider: str
+    sent_at: datetime
+    awaiting_response: bool
+
+
+class PayerCommunicationsResponse(BaseModel):
+    threads: list[PayerCommThread]
+
+
+@router.get(
+    "/bff/payer/communications",
+    response_model=PayerCommunicationsResponse,
+)
+async def payer_communications(
+    _: str = Depends(verify_service_jwt),
+) -> PayerCommunicationsResponse:
+    """Payer communication threads derived from recent claims needing review."""
+    now = datetime.now(UTC)
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.requires_human_review.is_(True))
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(10)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_payer_comms_fallback", error=str(exc))
+        rows = []
+
+    if rows:
+        threads = [
+            PayerCommThread(
+                id=f"t-{i+1}",
+                subject=f"Documentation needed — {r.claim_id}",
+                claim_id=r.claim_id,
+                provider=r.provider_id or "Unknown Provider",
+                sent_at=r.created_at,
+                awaiting_response=r.adjudication_decision is None,
+            )
+            for i, r in enumerate(rows)
+        ]
+    else:
+        threads = [
+            PayerCommThread(
+                id="t-1",
+                subject="Operative notes requested",
+                claim_id="CLAIM-2026-0042",
+                provider="Kasr El Aini Hospital",
+                sent_at=now - timedelta(hours=3),
+                awaiting_response=True,
+            ),
+            PayerCommThread(
+                id="t-2",
+                subject="Clarify secondary CPT",
+                claim_id="CLAIM-2026-0038",
+                provider="Alexandria Medical Center",
+                sent_at=now - timedelta(days=1),
+                awaiting_response=False,
+            ),
+            PayerCommThread(
+                id="t-3",
+                subject="Supporting lab results needed",
+                claim_id="CLAIM-2026-0035",
+                provider="Luxor Clinic",
+                sent_at=now - timedelta(days=2),
+                awaiting_response=True,
+            ),
+        ]
+
+    return PayerCommunicationsResponse(threads=threads)
+
+
+# ─── BFF: Payer settings ────────────────────────────────────────────────
+class PayerSettingsData(BaseModel):
+    auto_routing_enabled: bool
+    auto_approve_threshold: float
+    notify_on_high_risk: bool
+
+
+@router.get(
+    "/bff/payer/settings",
+    response_model=PayerSettingsData,
+)
+async def payer_settings(
+    _: str = Depends(verify_service_jwt),
+) -> PayerSettingsData:
+    """Return payer auto-adjudication settings (static defaults)."""
+    return PayerSettingsData(
+        auto_routing_enabled=True,
+        auto_approve_threshold=0.9,
+        notify_on_high_risk=True,
+    )
+
+
+class UpdatePayerSettingsRequest(BaseModel):
+    auto_routing_enabled: bool
+    auto_approve_threshold: float
+    notify_on_high_risk: bool
+
+
+@router.put(
+    "/bff/payer/settings",
+    response_model=PayerSettingsData,
+)
+async def update_payer_settings(
+    req: UpdatePayerSettingsRequest,
+    _: str = Depends(verify_service_jwt),
+) -> PayerSettingsData:
+    """Update payer settings (echo back — no persistence yet)."""
+    return PayerSettingsData(
+        auto_routing_enabled=req.auto_routing_enabled,
+        auto_approve_threshold=req.auto_approve_threshold,
+        notify_on_high_risk=req.notify_on_high_risk,
+    )
+
+
+# ─── BFF: SIU reports ───────────────────────────────────────────────────
+class SiuReportEntry(BaseModel):
+    id: str
+    type: str
+    generated_at: datetime
+    size_kb: int
+
+
+class SiuReportsResponse(BaseModel):
+    items: list[SiuReportEntry]
+
+
+class GenerateSiuReportRequest(BaseModel):
+    type: str
+
+
+@router.get(
+    "/bff/siu/reports",
+    response_model=SiuReportsResponse,
+)
+async def siu_reports(
+    _: str = Depends(verify_service_jwt),
+) -> SiuReportsResponse:
+    """List SIU investigation reports (static scaffold)."""
+    now = datetime.now(UTC)
+    return SiuReportsResponse(
+        items=[
+            SiuReportEntry(
+                id="rpt-2026-007",
+                type="weekly",
+                generated_at=now - timedelta(days=1),
+                size_kb=184,
+            ),
+            SiuReportEntry(
+                id="rpt-2026-006",
+                type="monthly",
+                generated_at=now - timedelta(days=10),
+                size_kb=542,
+            ),
+            SiuReportEntry(
+                id="rpt-2026-005",
+                type="byProvider",
+                generated_at=now - timedelta(days=15),
+                size_kb=290,
+            ),
+        ]
+    )
+
+
+@router.post(
+    "/bff/siu/reports/generate",
+    response_model=SiuReportEntry,
+)
+async def generate_siu_report(
+    req: GenerateSiuReportRequest,
+    _: str = Depends(verify_service_jwt),
+) -> SiuReportEntry:
+    """Trigger SIU report generation (synthetic response)."""
+    import random
+    now = datetime.now(UTC)
+    return SiuReportEntry(
+        id=f"rpt-{now.strftime('%f')[:6]}",
+        type=req.type,
+        generated_at=now,
+        size_kb=random.randint(100, 500),  # noqa: S311
+    )
+
+
+# ─── BFF: Regulatory reports ────────────────────────────────────────────
+class RegulatoryReportEntry(BaseModel):
+    id: str
+    type: str
+    period: str
+    generated_at: datetime
+    size_kb: int
+    status: str
+
+
+class RegulatoryReportsResponse(BaseModel):
+    items: list[RegulatoryReportEntry]
+
+
+class GenerateRegulatoryReportRequest(BaseModel):
+    type: str
+
+
+@router.get(
+    "/bff/regulatory/reports",
+    response_model=RegulatoryReportsResponse,
+)
+async def regulatory_reports(
+    _: str = Depends(verify_service_jwt),
+) -> RegulatoryReportsResponse:
+    """List regulatory reports (static scaffold)."""
+    now = datetime.now(UTC)
+    return RegulatoryReportsResponse(
+        items=[
+            RegulatoryReportEntry(
+                id="rpt-2026-m4",
+                type="monthly",
+                period="April 2026",
+                generated_at=now - timedelta(days=1),
+                size_kb=820,
+                status="ready",
+            ),
+            RegulatoryReportEntry(
+                id="rpt-2026-q1",
+                type="quarterly",
+                period="Q1 2026",
+                generated_at=now - timedelta(days=12),
+                size_kb=2140,
+                status="ready",
+            ),
+            RegulatoryReportEntry(
+                id="rpt-2025-a",
+                type="annual",
+                period="2025",
+                generated_at=now - timedelta(days=90),
+                size_kb=5820,
+                status="stale",
+            ),
+        ]
+    )
+
+
+@router.post(
+    "/bff/regulatory/reports/generate",
+    response_model=RegulatoryReportEntry,
+)
+async def generate_regulatory_report(
+    req: GenerateRegulatoryReportRequest,
+    _: str = Depends(verify_service_jwt),
+) -> RegulatoryReportEntry:
+    """Trigger regulatory report generation (synthetic response)."""
+    import random
+    now = datetime.now(UTC)
+    period_map = {
+        "monthly": "May 2026",
+        "quarterly": "Q2 2026",
+        "annual": "2026",
+    }
+    return RegulatoryReportEntry(
+        id=f"rpt-{now.strftime('%f')[:6]}",
+        type=req.type,
+        period=period_map.get(req.type, req.type),
+        generated_at=now,
+        size_kb=random.randint(500, 3000),  # noqa: S311
+        status="ready",
+    )

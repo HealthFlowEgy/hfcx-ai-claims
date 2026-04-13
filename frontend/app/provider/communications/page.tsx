@@ -1,17 +1,19 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { MessageSquare, Send } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
 
 type Message = {
   id: string;
-  from: string;
+  from_name: string;
   direction: 'inbound' | 'outbound';
   body: string;
   sent_at: string;
@@ -26,80 +28,62 @@ type Thread = {
   messages: Message[];
 };
 
-const SEED_THREADS: Thread[] = [
-  {
-    id: 't-1',
-    subject: 'Additional documentation requested',
-    payer: 'Misr Insurance',
-    claim_id: 'CLAIM-2026-0042',
-    unread: true,
-    messages: [
-      {
-        id: 'm-1',
-        from: 'Misr Insurance',
-        direction: 'inbound',
-        body: 'Please provide the operative notes and radiology report for this claim before we can proceed.',
-        sent_at: new Date(Date.now() - 3 * 3600000).toISOString(),
-      },
-    ],
-  },
-  {
-    id: 't-2',
-    subject: 'Pre-auth clarification',
-    payer: 'Allianz Egypt',
-    claim_id: 'CLAIM-2026-0038',
-    unread: false,
-    messages: [
-      {
-        id: 'm-2',
-        from: 'Allianz Egypt',
-        direction: 'inbound',
-        body: 'Kindly confirm the CPT code for the secondary procedure.',
-        sent_at: new Date(Date.now() - 86400000).toISOString(),
-      },
-      {
-        id: 'm-3',
-        from: 'Provider',
-        direction: 'outbound',
-        body: 'Confirmed — the secondary procedure is CPT 99215. Full chart attached.',
-        sent_at: new Date(Date.now() - 12 * 3600000).toISOString(),
-      },
-    ],
-  },
-];
-
 export default function ProviderCommunicationsPage() {
   const t = useTranslations('provider.communications');
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
-  const [activeId, setActiveId] = useState<string>(SEED_THREADS[0]?.id ?? '');
+  const [activeId, setActiveId] = useState<string>('');
   const [draft, setDraft] = useState('');
-  const [threads, setThreads] = useState(SEED_THREADS);
-  const active = threads.find((t) => t.id === activeId);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['provider', 'communications'],
+    queryFn: () => api.providerCommunications(),
+  });
+
+  const threads: Thread[] = (data?.threads ?? []).map((th) => ({
+    ...th,
+    messages: th.messages.map((m) => ({
+      ...m,
+    })),
+  }));
+
+  // Select first thread if nothing selected yet
+  const selectedId = activeId || threads[0]?.id || '';
+  const active = threads.find((t) => t.id === selectedId);
+
+  const [localMessages, setLocalMessages] = useState<
+    Record<string, Message[]>
+  >({});
+
+  const allMessages = active
+    ? [...active.messages, ...(localMessages[active.id] ?? [])]
+    : [];
 
   const send = () => {
     if (!active || !draft.trim()) return;
-    setThreads((prev) =>
-      prev.map((th) =>
-        th.id === active.id
-          ? {
-              ...th,
-              messages: [
-                ...th.messages,
-                {
-                  id: `m-${Date.now()}`,
-                  from: 'Provider',
-                  direction: 'outbound',
-                  body: draft,
-                  sent_at: new Date().toISOString(),
-                },
-              ],
-            }
-          : th,
-      ),
-    );
+    setLocalMessages((prev) => ({
+      ...prev,
+      [active.id]: [
+        ...(prev[active.id] ?? []),
+        {
+          id: `m-${Date.now()}`,
+          from_name: 'Provider',
+          direction: 'outbound' as const,
+          body: draft,
+          sent_at: new Date().toISOString(),
+        },
+      ],
+    }));
     setDraft('');
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -125,7 +109,7 @@ export default function ProviderCommunicationsPage() {
                 onClick={() => setActiveId(th.id)}
                 className={cn(
                   'w-full rounded-md p-3 text-start transition-colors hover:bg-accent',
-                  activeId === th.id && 'bg-hcx-primary-light/60',
+                  selectedId === th.id && 'bg-hcx-primary-light/60',
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -162,7 +146,7 @@ export default function ProviderCommunicationsPage() {
             {!active && (
               <p className="text-sm text-hcx-text-muted">{tc('noData')}</p>
             )}
-            {active?.messages.map((m) => (
+            {allMessages.map((m) => (
               <div
                 key={m.id}
                 className={cn(
@@ -173,7 +157,7 @@ export default function ProviderCommunicationsPage() {
                 )}
               >
                 <div className="mb-1 flex items-center justify-between text-xs text-hcx-text-muted">
-                  <span className="font-semibold">{m.from}</span>
+                  <span className="font-semibold">{m.from_name}</span>
                   <span>{formatDate(m.sent_at, locale)}</span>
                 </div>
                 <p className="leading-relaxed">{m.body}</p>

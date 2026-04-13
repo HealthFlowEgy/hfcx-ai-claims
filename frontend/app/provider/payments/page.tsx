@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
+import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Banknote, CheckCircle2, Clock } from 'lucide-react';
 
@@ -9,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable } from '@/components/shared/data-table';
 import { KpiCard } from '@/components/shared/kpi-card';
+import { api } from '@/lib/api';
 import { formatDate, formatEgp } from '@/lib/utils';
 
 type Payment = {
@@ -20,51 +22,25 @@ type Payment = {
   reconciled: boolean;
 };
 
-/**
- * Provider → Payments page. SRS §4.1 + Integration Guide §20.
- *
- * Synthetic data today — follow-up BFF endpoint /bff/provider/payments
- * will pull from the HFCX /paymentnotice/request pipeline.
- */
-const SEED_PAYMENTS: Payment[] = [
-  {
-    payment_ref: 'PAY-2026-10034',
-    claim_id: 'CLAIM-2026-0042',
-    paid_on: new Date(Date.now() - 86400000).toISOString(),
-    settled_amount: 1820,
-    method: 'Bank transfer',
-    reconciled: true,
-  },
-  {
-    payment_ref: 'PAY-2026-10033',
-    claim_id: 'CLAIM-2026-0038',
-    paid_on: new Date(Date.now() - 2 * 86400000).toISOString(),
-    settled_amount: 2650,
-    method: 'Bank transfer',
-    reconciled: true,
-  },
-  {
-    payment_ref: 'PAY-2026-10032',
-    claim_id: 'CLAIM-2026-0036',
-    paid_on: new Date(Date.now() - 3 * 86400000).toISOString(),
-    settled_amount: 980,
-    method: 'Bank transfer',
-    reconciled: false,
-  },
-];
-
 export default function ProviderPaymentsPage() {
   const t = useTranslations('provider.payments');
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
 
+  const { data, isLoading } = useQuery({
+    queryKey: ['provider', 'payments'],
+    queryFn: () => api.providerPayments(),
+  });
+
+  const payments: Payment[] = data?.items ?? [];
+
   const total = useMemo(
-    () => SEED_PAYMENTS.reduce((s, p) => s + p.settled_amount, 0),
-    [],
+    () => payments.reduce((s, p) => s + p.settled_amount, 0),
+    [payments],
   );
   const reconciled = useMemo(
-    () => SEED_PAYMENTS.filter((p) => p.reconciled).length,
-    [],
+    () => payments.filter((p) => p.reconciled).length,
+    [payments],
   );
 
   const columns = useMemo<ColumnDef<Payment>[]>(
@@ -109,6 +85,14 @@ export default function ProviderPaymentsPage() {
     [locale, t],
   );
 
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -129,7 +113,7 @@ export default function ProviderPaymentsPage() {
         />
         <KpiCard
           label={t('unreconciled')}
-          value={SEED_PAYMENTS.length - reconciled}
+          value={payments.length - reconciled}
           icon={<Clock className="size-5" />}
         />
       </div>
@@ -139,7 +123,7 @@ export default function ProviderPaymentsPage() {
           <CardTitle>{t('title')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} data={SEED_PAYMENTS} />
+          <DataTable columns={columns} data={payments} />
         </CardContent>
       </Card>
     </div>

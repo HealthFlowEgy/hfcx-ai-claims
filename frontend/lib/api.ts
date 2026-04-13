@@ -340,4 +340,239 @@ export const api = {
       }>
     >('/internal/ai/bff/regulatory/compliance', opts);
   },
+
+  // ── Provider communications ────────────────────────────────────────────
+  providerCommunications(opts: FetchOptions = {}) {
+    return request<{
+      threads: Array<{
+        id: string;
+        subject: string;
+        payer: string;
+        claim_id: string;
+        unread: boolean;
+        messages: Array<{
+          id: string;
+          from_name: string;
+          direction: 'inbound' | 'outbound';
+          body: string;
+          sent_at: string;
+        }>;
+      }>;
+    }>('/internal/ai/bff/provider/communications', opts);
+  },
+
+  // ── Provider payments ──────────────────────────────────────────────────
+  providerPayments(opts: FetchOptions = {}) {
+    return request<{
+      items: Array<{
+        payment_ref: string;
+        claim_id: string;
+        paid_on: string;
+        settled_amount: number;
+        method: string;
+        reconciled: boolean;
+      }>;
+    }>('/internal/ai/bff/provider/payments', opts);
+  },
+
+  // ── Provider pre-auth ──────────────────────────────────────────────────
+  providerPreauth(opts: FetchOptions = {}) {
+    return request<{
+      items: Array<{
+        request_id: string;
+        claim_type: string;
+        patient_nid_masked: string;
+        icd10: string;
+        procedure: string;
+        amount: number;
+        status: string;
+        requested_at: string;
+        authorized_qty?: number;
+        auth_number?: string;
+        valid_until?: string;
+        justification?: string;
+      }>;
+    }>('/internal/ai/bff/provider/preauth', opts);
+  },
+
+  createPreauth(
+    payload: {
+      patient_nid: string;
+      icd10: string;
+      procedure: string;
+      amount: number;
+      justification?: string;
+    },
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      request_id: string;
+      claim_type: string;
+      patient_nid_masked: string;
+      icd10: string;
+      procedure: string;
+      amount: number;
+      status: string;
+      requested_at: string;
+      justification?: string;
+    }>('/internal/ai/bff/provider/preauth', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
+  // ── Provider settings ──────────────────────────────────────────────────
+  providerSettings(opts: FetchOptions = {}) {
+    return request<{
+      profile: {
+        name: string;
+        organization: string;
+        email: string;
+        language: string;
+      };
+      notifications: {
+        denial: boolean;
+        payment: boolean;
+        comms: boolean;
+      };
+    }>('/internal/ai/bff/provider/settings', opts);
+  },
+
+  updateProviderSettings(
+    payload: {
+      profile: {
+        name: string;
+        organization: string;
+        email: string;
+        language: string;
+      };
+      notifications: {
+        denial: boolean;
+        payment: boolean;
+        comms: boolean;
+      };
+    },
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      profile: {
+        name: string;
+        organization: string;
+        email: string;
+        language: string;
+      };
+      notifications: {
+        denial: boolean;
+        payment: boolean;
+        comms: boolean;
+      };
+    }>('/internal/ai/bff/provider/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
+  // ── Payer communications ───────────────────────────────────────────────
+  payerCommunications(opts: FetchOptions = {}) {
+    return request<{
+      threads: Array<{
+        id: string;
+        subject: string;
+        claim_id: string;
+        provider: string;
+        sent_at: string;
+        awaiting_response: boolean;
+      }>;
+    }>('/internal/ai/bff/payer/communications', opts);
+  },
+
+  // ── Payer settings ─────────────────────────────────────────────────────
+  payerSettings(opts: FetchOptions = {}) {
+    return request<{
+      auto_routing_enabled: boolean;
+      auto_approve_threshold: number;
+      notify_on_high_risk: boolean;
+    }>('/internal/ai/bff/payer/settings', opts);
+  },
+
+  updatePayerSettings(
+    payload: {
+      auto_routing_enabled: boolean;
+      auto_approve_threshold: number;
+      notify_on_high_risk: boolean;
+    },
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      auto_routing_enabled: boolean;
+      auto_approve_threshold: number;
+      notify_on_high_risk: boolean;
+    }>('/internal/ai/bff/payer/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
+  // ── SIU reports ────────────────────────────────────────────────────────
+  siuReports(opts: FetchOptions = {}) {
+    return request<{
+      items: Array<{
+        id: string;
+        type: string;
+        generated_at: string;
+        size_kb: number;
+      }>;
+    }>('/internal/ai/bff/siu/reports', opts);
+  },
+
+  generateSiuReport(
+    payload: { type: string },
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      id: string;
+      type: string;
+      generated_at: string;
+      size_kb: number;
+    }>('/internal/ai/bff/siu/reports/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
+  // ── Regulatory reports ─────────────────────────────────────────────────
+  regulatoryReports(opts: FetchOptions = {}) {
+    return request<{
+      items: Array<{
+        id: string;
+        type: string;
+        period: string;
+        generated_at: string;
+        size_kb: number;
+        status: string;
+      }>;
+    }>('/internal/ai/bff/regulatory/reports', opts);
+  },
+
+  generateRegulatoryReport(
+    payload: { type: string },
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      id: string;
+      type: string;
+      period: string;
+      generated_at: string;
+      size_kb: number;
+      status: string;
+    }>('/internal/ai/bff/regulatory/reports/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
 };

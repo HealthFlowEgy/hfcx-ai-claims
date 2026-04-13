@@ -33,6 +33,8 @@ from src.agents.eligibility import EligibilityAgent
 from src.agents.multimodal import MultimodalDocumentAgent
 from src.api.routes.agents import router as agents_router
 from src.api.routes.bff import router as bff_router
+from src.api.routes.documents import router as documents_router
+from src.api.routes.sse import router as sse_router
 from src.api.routes.coordinator import router as coordinator_router
 from src.api.routes.feedback import router as feedback_router
 from src.api.routes.health import router as health_router
@@ -150,6 +152,8 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router, prefix="/internal/ai", tags=["Feedback"])
     app.include_router(bff_router, prefix="/internal/ai", tags=["BFF"])
     app.include_router(health_router, prefix="/internal/ai", tags=["Health"])
+    app.include_router(sse_router, prefix="/internal/ai", tags=["SSE"])
+    app.include_router(documents_router, prefix="/internal/ai", tags=["Documents"])
 
     # ── Prometheus metrics endpoint ───────────────────────────────────────
     metrics_app = make_asgi_app()
