@@ -46,6 +46,12 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            - name: KEYCLOAK_URL
+              value: "https://auth.claim.healthflow.tech"
+            - name: KEYCLOAK_REALM
+              value: "hcx"
+            - name: KEYCLOAK_CLIENT_ID
+              value: "hfcx-portal"
           resources:
             requests:
               cpu: 200m

@@ -55,10 +55,10 @@ export function middleware(request: NextRequest) {
 
   if (isPortalRoute && isProduction && !hasSession) {
     const keycloakUrl =
-      process.env.KEYCLOAK_URL ?? 'https://auth.healthflow.tech';
+      process.env.KEYCLOAK_URL ?? 'https://auth.claim.healthflow.tech';
     const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
     const clientId =
-      process.env.KEYCLOAK_CLIENT_ID ?? 'hfcx-frontend';
+      process.env.KEYCLOAK_CLIENT_ID ?? 'hfcx-portal';
     const redirect = encodeURIComponent(request.nextUrl.toString());
     const login =
       `${keycloakUrl}/realms/${realm}/protocol/openid-connect/auth` +

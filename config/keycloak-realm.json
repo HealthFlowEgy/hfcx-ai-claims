@@ -1,0 +1,195 @@
+{
+  "realm": "hcx",
+  "enabled": true,
+  "displayName": "HealthFlow Claims Exchange",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      {
+        "name": "provider",
+        "description": "Healthcare provider role"
+      },
+      {
+        "name": "payer",
+        "description": "Insurance payer role"
+      },
+      {
+        "name": "siu",
+        "description": "Special Investigations Unit role"
+      },
+      {
+        "name": "regulatory",
+        "description": "Regulatory authority role"
+      },
+      {
+        "name": "admin",
+        "description": "System administrator role"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "hfcx-ai-service",
+      "name": "HFCX AI Service",
+      "description": "Backend service-to-service client for internal AI API authentication",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "30283175e4d86f1c13a6725bd5ac3ec838d57b310c2194ffa59edec013f809ee",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "hfcx-ai-service",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "hfcx-portal",
+      "name": "HFCX Portal",
+      "description": "Frontend portal client for user authentication",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "rootUrl": "https://portal.claim.healthflow.tech",
+      "baseUrl": "https://portal.claim.healthflow.tech",
+      "redirectUris": [
+        "https://portal.claim.healthflow.tech/*",
+        "http://portal.claim.healthflow.tech/*",
+        "https://209.38.177.17/*",
+        "http://localhost:3000/*",
+        "http://localhost:8888/*"
+      ],
+      "webOrigins": [
+        "https://portal.claim.healthflow.tech",
+        "http://portal.claim.healthflow.tech",
+        "https://209.38.177.17",
+        "http://localhost:3000",
+        "http://localhost:8888",
+        "+"
+      ],
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ],
+      "protocolMappers": [
+        {
+          "name": "realm-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "realm_roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ],
+      "adminUrl": "https://portal.claim.healthflow.tech"
+    }
+  ],
+  "users": [
+    {
+      "username": "provider-demo",
+      "email": "provider@healthflow.tech",
+      "firstName": "Dr. Ahmed",
+      "lastName": "Hassan",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "provider"
+      ]
+    },
+    {
+      "username": "payer-demo",
+      "email": "payer@healthflow.tech",
+      "firstName": "Sarah",
+      "lastName": "Ibrahim",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "payer"
+      ]
+    },
+    {
+      "username": "siu-demo",
+      "email": "siu@healthflow.tech",
+      "firstName": "Mohamed",
+      "lastName": "Farouk",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "siu"
+      ]
+    },
+    {
+      "username": "regulatory-demo",
+      "email": "regulatory@healthflow.tech",
+      "firstName": "Fatma",
+      "lastName": "El-Sayed",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Demo2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "regulatory"
+      ]
+    }
+  ]
+}
