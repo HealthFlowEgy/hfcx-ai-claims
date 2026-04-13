@@ -276,11 +276,11 @@ jobs:
             --set controller.publishService.enabled=true \
             --set controller.service.type=LoadBalancer \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-name"="hfcx-ai-lb" \
-            --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-enable-proxy-protocol"="true" \
+            --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-enable-proxy-protocol"="false" \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-type"="cookies" \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-cookie-name"="HFCX_LB" \
             --set-string controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-sticky-sessions-cookie-ttl"="300" \
-            --set-string controller.config.use-proxy-protocol="true" \
+            --set-string controller.config.use-proxy-protocol="false" \
             --set-string controller.config.hide-headers="X-Powered-By" \
             --set-string controller.config.hsts="true" \
             --set-string controller.config.hsts-max-age="31536000" \
