@@ -13,8 +13,6 @@ import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
 
 type ReportType = 'monthly' | 'quarterly' | 'annual';
-type ReportStatus = 'ready' | 'generating' | 'stale';
-
 type ReportEntry = {
   id: string;
   type: string;
