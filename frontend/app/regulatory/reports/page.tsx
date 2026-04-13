@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { AlertTriangle, Download, FileText } from 'lucide-react';
 
@@ -8,90 +9,54 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
 
-/**
- * SRS §7.2.4 FR-RD-RPT-001..003 — Regulatory reports.
- *
- * Full Arabic PDF report generation via react-pdf ships in a follow-up
- * milestone. Today we scaffold the surface so regulators can browse
- * scheduled reports and queue on-demand generation; the backend job is
- * a placeholder that hits /internal/ai/bff/regulatory/reports/generate
- * once the PDF engine lands.
- */
 type ReportType = 'monthly' | 'quarterly' | 'annual';
 type ReportStatus = 'ready' | 'generating' | 'stale';
 
 type ReportEntry = {
   id: string;
-  type: ReportType;
+  type: string;
   period: string;
   generated_at: string;
   size_kb: number;
-  status: ReportStatus;
+  status: string;
 };
-
-const SEED: ReportEntry[] = [
-  {
-    id: 'rpt-2026-m4',
-    type: 'monthly',
-    period: 'April 2026',
-    generated_at: new Date(Date.now() - 86400000).toISOString(),
-    size_kb: 820,
-    status: 'ready',
-  },
-  {
-    id: 'rpt-2026-q1',
-    type: 'quarterly',
-    period: 'Q1 2026',
-    generated_at: new Date(Date.now() - 12 * 86400000).toISOString(),
-    size_kb: 2140,
-    status: 'ready',
-  },
-  {
-    id: 'rpt-2025-a',
-    type: 'annual',
-    period: '2025',
-    generated_at: new Date(Date.now() - 90 * 86400000).toISOString(),
-    size_kb: 5820,
-    status: 'stale',
-  },
-];
 
 export default function RegulatoryReportsPage() {
   const t = useTranslations('regulatory.reports');
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
   const [type, setType] = useState<ReportType>('monthly');
-  const [entries, setEntries] = useState(SEED);
-  const [pending, setPending] = useState(false);
+  const queryClient = useQueryClient();
 
-  const generate = () => {
-    setPending(true);
-    setTimeout(() => {
-      setEntries([
-        {
-          id: `rpt-${Date.now().toString().slice(-6)}`,
-          type,
-          period:
-            type === 'monthly'
-              ? 'May 2026'
-              : type === 'quarterly'
-              ? 'Q2 2026'
-              : '2026',
-          generated_at: new Date().toISOString(),
-          size_kb: Math.floor(500 + Math.random() * 3000),
-          status: 'ready',
-        },
-        ...entries,
-      ]);
-      setPending(false);
-    }, 900);
-  };
+  const { data, isLoading } = useQuery({
+    queryKey: ['regulatory', 'reports'],
+    queryFn: () => api.regulatoryReports(),
+  });
+
+  const entries: ReportEntry[] = data?.items ?? [];
+
+  const generateMutation = useMutation({
+    mutationFn: (reportType: string) =>
+      api.generateRegulatoryReport({ type: reportType }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['regulatory', 'reports'] });
+    },
+  });
 
   const freshness = new Date(Date.now() - 2 * 3600000).toISOString();
   const isStale =
     Date.now() - new Date(freshness).getTime() > 24 * 3600000;
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center">
+        <p className="text-sm text-hcx-text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -133,8 +98,12 @@ export default function RegulatoryReportsPage() {
               <option value="annual">{t('annual')}</option>
             </select>
           </div>
-          <Button onClick={generate} disabled={pending} aria-busy={pending}>
-            {pending ? tc('loading') : t('generateNow')}
+          <Button
+            onClick={() => generateMutation.mutate(type)}
+            disabled={generateMutation.isPending}
+            aria-busy={generateMutation.isPending}
+          >
+            {generateMutation.isPending ? tc('loading') : t('generateNow')}
           </Button>
         </CardContent>
       </Card>
@@ -151,7 +120,7 @@ export default function RegulatoryReportsPage() {
             >
               <div className="flex items-center gap-3">
                 <Badge variant="outline" className="text-xs">
-                  {t(r.type)}
+                  {t(r.type as ReportType)}
                 </Badge>
                 <div>
                   <div className="text-sm font-semibold">{r.period}</div>
