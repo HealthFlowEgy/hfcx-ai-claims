@@ -19,10 +19,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing authorization code' }, { status: 400 });
   }
 
-  // External URL (used in browser-facing redirect_uri — must match the
-  // authorization request exactly).
-  const keycloakUrl =
-    process.env.KEYCLOAK_URL ?? 'https://auth.claim.healthflow.tech';
   const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
   const clientId = process.env.KEYCLOAK_CLIENT_ID ?? 'hfcx-portal';
   const portalBase =
