@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from 'next/server';
  * 1. If the user hits any portal route without a valid session (no
  *    `hcx_session` cookie AND the page isn't the landing / public),
  *    we redirect to Keycloak, preserving the original URL via the
- *    `next` query parameter for post-login redirect.
+ *    `state` parameter for post-login redirect.
  *
  * 2. If the `hcx_locale` cookie is missing, we seed it to Arabic so
  *    the server-side `i18n.ts` resolver sees the correct default on
@@ -36,7 +36,7 @@ export function middleware(request: NextRequest) {
     });
   }
 
-  // Skip public routes and Next.js internal routes.
+  // Skip public routes, Next.js internal routes, and API routes.
   if (
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith('/_next') ||
@@ -59,18 +59,19 @@ export function middleware(request: NextRequest) {
     const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
     const clientId =
       process.env.KEYCLOAK_CLIENT_ID ?? 'hfcx-portal';
-
-    // Build the redirect URI using the public portal base URL.
-    // request.nextUrl.toString() returns the internal container address
-    // (e.g. https://0.0.0.0:3000/provider), so we construct the
-    // external URL from PORTAL_BASE_URL or the X-Forwarded-Host header.
     const portalBase =
       process.env.PORTAL_BASE_URL ?? 'https://portal.claim.healthflow.tech';
-    const redirectUri = encodeURIComponent(`${portalBase}${pathname}`);
+
+    // The redirect_uri points to our callback handler which exchanges
+    // the auth code for tokens and sets the session cookie.
+    const redirectUri = encodeURIComponent(`${portalBase}/api/auth/callback`);
+    // The state parameter preserves the originally requested path.
+    const state = encodeURIComponent(pathname);
 
     const login =
       `${keycloakUrl}/realms/${realm}/protocol/openid-connect/auth` +
-      `?client_id=${clientId}&response_type=code&scope=openid&redirect_uri=${redirectUri}`;
+      `?client_id=${clientId}&response_type=code&scope=openid` +
+      `&redirect_uri=${redirectUri}&state=${state}`;
     return NextResponse.redirect(login);
   }
 
