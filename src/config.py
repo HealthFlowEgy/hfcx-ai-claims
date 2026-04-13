@@ -58,12 +58,17 @@ class Settings(BaseSettings):
 
     # ── LiteLLM Gateway ──────────────────────────────────────────────────
     litellm_base_url: AnyHttpUrl = "http://localhost:4000"  # type: ignore[assignment]
-    litellm_api_key: str = "sk-internal-hfcx"  # OpenAI key for LiteLLM → OpenAI
-    litellm_master_key: str = "sk-internal-hfcx"  # proxy auth key (reads LITELLM_MASTER_KEY env)
-    litellm_coordinator_model: str = "ollama/medgemma:27b"
-    litellm_coding_model: str = "ollama/llama3:8b-instruct"
-    litellm_arabic_model: str = "ollama/bimediX:8x7b"
-    litellm_fast_model: str = "ollama/qwen3:7b"
+    litellm_api_key: str = "sk-internal-hfcx"
+    # litellm_master_key is the proxy auth token — the key the backend
+    # presents to the LiteLLM proxy.  After the R-2 key separation
+    # (commit 44cbba2) this is distinct from litellm_api_key (the OpenAI
+    # billing key).  Reads env var LITELLM_MASTER_KEY which is injected
+    # from hfcx-ai-secrets via envFrom in backend.yaml.
+    litellm_master_key: str = "sk-internal-hfcx"
+    litellm_coordinator_model: str = "gpt-4o"
+    litellm_coding_model: str = "gpt-4o"
+    litellm_arabic_model: str = "gpt-4o"
+    litellm_fast_model: str = "gpt-4o-mini"
     litellm_timeout_seconds: int = 30
     litellm_max_retries: int = 3
 
