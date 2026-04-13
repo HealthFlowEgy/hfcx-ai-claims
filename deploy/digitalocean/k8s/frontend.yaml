@@ -54,6 +54,8 @@ spec:
               value: "hfcx-portal"
             - name: PORTAL_BASE_URL
               value: "https://portal.claim.healthflow.tech"
+            - name: KEYCLOAK_INTERNAL_URL
+              value: "http://keycloak.hcx-ai.svc.cluster.local:8080"
           resources:
             requests:
               cpu: 200m

@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing authorization code' }, { status: 400 });
   }
 
+  // External URL (used in browser-facing redirect_uri — must match the
+  // authorization request exactly).
   const keycloakUrl =
     process.env.KEYCLOAK_URL ?? 'https://auth.claim.healthflow.tech';
   const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
@@ -27,9 +29,15 @@ export async function GET(request: NextRequest) {
     process.env.PORTAL_BASE_URL ?? 'https://portal.claim.healthflow.tech';
   const redirectUri = `${portalBase}/api/auth/callback`;
 
+  // Internal Keycloak URL for server-to-server token exchange.
+  // Inside the K8s cluster the external domain may not be reachable
+  // (hairpin / proxy-protocol issues), so we call the ClusterIP service.
+  const keycloakInternal =
+    process.env.KEYCLOAK_INTERNAL_URL ?? 'http://keycloak.hcx-ai.svc.cluster.local:8080';
+
   try {
-    // Exchange authorization code for tokens
-    const tokenUrl = `${keycloakUrl}/realms/${realm}/protocol/openid-connect/token`;
+    // Exchange authorization code for tokens using the internal URL
+    const tokenUrl = `${keycloakInternal}/realms/${realm}/protocol/openid-connect/token`;
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
