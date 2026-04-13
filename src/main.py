@@ -33,13 +33,13 @@ from src.agents.eligibility import EligibilityAgent
 from src.agents.multimodal import MultimodalDocumentAgent
 from src.api.routes.agents import router as agents_router
 from src.api.routes.bff import router as bff_router
-from src.api.routes.documents import router as documents_router
-from src.api.routes.sse import router as sse_router
 from src.api.routes.coordinator import router as coordinator_router
+from src.api.routes.documents import router as documents_router
 from src.api.routes.feedback import router as feedback_router
 from src.api.routes.health import router as health_router
 from src.api.routes.llm import router as llm_router
 from src.api.routes.memory import router as memory_router
+from src.api.routes.sse import router as sse_router
 from src.config import get_settings
 from src.models.orm import dispose_engine
 from src.services.audit_service import AuditService
