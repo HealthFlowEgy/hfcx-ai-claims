@@ -10,7 +10,7 @@ import {
   useWatch,
 } from 'react-hook-form';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus, Send, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Send, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,15 +20,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Icd10Selector } from '@/components/shared/icd10-selector';
 import { PatientNidInput } from '@/components/shared/patient-nid-input';
+import { AIRecommendationCard } from '@/components/shared/ai-recommendation-card';
 import { api } from '@/lib/api';
+import type { AICoordinateResponse } from '@/lib/types';
 import { formatEgp } from '@/lib/utils';
 
 /**
  * SRS §4.2.2 — New Claim Submission form.
  *
  * Flow: NID → eligibility → claim type → service lines → submit.
- * Uses the shared ICD10Selector (FR-PP-ICD-001) and a dedicated
- * prescription_id field for pharmacy claims (FR-MC-003 NDP cross-ref).
+ * After submission, the full AI adjudication results are displayed
+ * using the AIRecommendationCard component.
  */
 
 const serviceLineSchema = z.object({
@@ -53,7 +55,6 @@ const claimSchema = z.object({
   provider_id: z.string().min(1),
   service_lines: z.array(serviceLineSchema).min(1),
   clinical_notes: z.string().optional(),
-  // FR-MC-003: NDP prescription reference (required for pharmacy claims)
   prescription_id: z.string().optional(),
 });
 
@@ -65,10 +66,7 @@ export default function NewClaimPage() {
   const tClaim = useTranslations('claim');
   const locale = useLocale();
 
-  const [successInfo, setSuccessInfo] = useState<{
-    claim_id: string;
-    correlation_id: string;
-  } | null>(null);
+  const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
 
   const form = useForm<ClaimFormValues>({
     resolver: zodResolver(claimSchema),
@@ -96,8 +94,6 @@ export default function NewClaimPage() {
     name: 'service_lines',
   });
 
-  // useWatch is scoped so only the total re-renders when service_lines
-  // change, not the whole form tree (SRS §11.2 perf budget).
   const watchedLines = useWatch({
     control: form.control,
     name: 'service_lines',
@@ -121,7 +117,6 @@ export default function NewClaimPage() {
 
   const submit = useMutation({
     mutationFn: async (values: ClaimFormValues) => {
-      // Translate form values into the FHIR Claim bundle the backend expects.
       const claim_id = `CLAIM-${Date.now()}`;
       const bundle = {
         resourceType: 'Bundle',
@@ -182,13 +177,81 @@ export default function NewClaimPage() {
       });
     },
     onSuccess: (res) => {
-      setSuccessInfo({
-        claim_id: res.claim_id,
-        correlation_id: res.correlation_id,
-      });
-      form.reset();
+      setAiResult(res);
     },
   });
+
+  // If we have AI results, show them prominently
+  if (aiResult) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
+        </header>
+
+        <Alert variant="success">
+          <AlertTitle>{t('success')}</AlertTitle>
+          <AlertDescription>
+            {tClaim('id')}: <strong>{aiResult.claim_id}</strong>
+            <br />
+            {t('correlationId')}: {aiResult.correlation_id}
+          </AlertDescription>
+        </Alert>
+
+        {/* Full AI Analysis Results */}
+        <AIRecommendationCard analysis={aiResult} />
+
+        {/* Processing details */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Adjudication Summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+              <div>
+                <p className="text-hcx-text-muted">Decision</p>
+                <p className="text-lg font-bold capitalize">{aiResult.adjudication_decision}</p>
+              </div>
+              <div>
+                <p className="text-hcx-text-muted">Confidence</p>
+                <p className="text-lg font-bold">{(aiResult.overall_confidence * 100).toFixed(1)}%</p>
+              </div>
+              <div>
+                <p className="text-hcx-text-muted">Processing Time</p>
+                <p className="text-lg font-bold">{aiResult.processing_time_ms}ms</p>
+              </div>
+              <div>
+                <p className="text-hcx-text-muted">Human Review</p>
+                <p className="text-lg font-bold">{aiResult.requires_human_review ? 'Required' : 'Not Required'}</p>
+              </div>
+            </div>
+            {aiResult.human_review_reasons.length > 0 && (
+              <div className="rounded-lg border border-hcx-warning/40 bg-hcx-warning/5 p-3">
+                <p className="mb-1 text-sm font-medium text-hcx-warning">Review Reasons:</p>
+                <ul className="list-disc ps-5 text-sm">
+                  {aiResult.human_review_reasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setAiResult(null);
+              form.reset();
+            }}
+          >
+            Submit Another Claim
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -196,13 +259,11 @@ export default function NewClaimPage() {
         <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
       </header>
 
-      {successInfo && (
-        <Alert variant="success">
-          <AlertTitle>{t('success')}</AlertTitle>
+      {submit.isError && (
+        <Alert variant="destructive">
+          <AlertTitle>Submission Failed</AlertTitle>
           <AlertDescription>
-            {tClaim('id')}: <strong>{successInfo.claim_id}</strong>
-            <br />
-            {t('correlationId')}: {successInfo.correlation_id}
+            {submit.error instanceof Error ? submit.error.message : 'An error occurred while processing the claim. Please try again.'}
           </AlertDescription>
         </Alert>
       )}
@@ -392,8 +453,17 @@ export default function NewClaimPage() {
               disabled={submit.isPending}
               aria-busy={submit.isPending}
             >
-              <Send className="size-4" />
-              {t('submit')}
+              {submit.isPending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Processing AI Analysis...
+                </>
+              ) : (
+                <>
+                  <Send className="size-4" />
+                  {t('submit')}
+                </>
+              )}
             </Button>
           </CardContent>
         </Card>
@@ -411,8 +481,6 @@ function claimTypeToFhir(t: string): string {
     case 'pharmacy':
       return 'pharmacy';
     case 'lab':
-      // Lab claims flow through the professional workflow per HFCX
-      // protocol §18 — there is no dedicated FHIR Claim.type.code.
       return 'professional';
     case 'dental':
       return 'oral';

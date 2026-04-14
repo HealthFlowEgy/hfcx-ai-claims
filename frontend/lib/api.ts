@@ -34,8 +34,14 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_API_BASE =
+const DIRECT_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8090';
+
+// In the browser, route through the Next.js BFF proxy so the HttpOnly
+// session cookie is automatically injected as a Bearer token.
+// On the server (SSR), call the backend directly.
+const isBrowser = typeof window !== 'undefined';
+const DEFAULT_API_BASE = isBrowser ? '/api/proxy' : DIRECT_API_BASE;
 
 function generateCorrelationId(): string {
   // Short correlation ID — matches X-HCX-Correlation-ID format.
