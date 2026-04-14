@@ -16,7 +16,10 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state') || '/';
 
   if (!code) {
-    return NextResponse.json({ error: 'Missing authorization code' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Missing authorization code' },
+      { status: 400 },
+    );
   }
 
   const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
@@ -29,7 +32,8 @@ export async function GET(request: NextRequest) {
   // Inside the K8s cluster the external domain may not be reachable
   // (hairpin / proxy-protocol issues), so we call the ClusterIP service.
   const keycloakInternal =
-    process.env.KEYCLOAK_INTERNAL_URL ?? 'http://keycloak.hcx-ai.svc.cluster.local:8080';
+    process.env.KEYCLOAK_INTERNAL_URL ??
+    'http://keycloak.hcx-ai.svc.cluster.local:8080';
 
   try {
     // Exchange authorization code for tokens using the internal URL
@@ -47,7 +51,11 @@ export async function GET(request: NextRequest) {
 
     if (!tokenResponse.ok) {
       const errorBody = await tokenResponse.text();
-      console.error('Token exchange failed:', tokenResponse.status, errorBody);
+      console.error(
+        'Token exchange failed:',
+        tokenResponse.status,
+        errorBody,
+      );
       return NextResponse.redirect(`${portalBase}/access-denied`);
     }
 
@@ -59,6 +67,7 @@ export async function GET(request: NextRequest) {
     // Set the session cookie with the access token
     const response = NextResponse.redirect(`${portalBase}${state}`);
 
+    // Set access token cookie — use the actual token expiry
     response.cookies.set('hcx_session', accessToken, {
       path: '/',
       httpOnly: true,
@@ -67,6 +76,8 @@ export async function GET(request: NextRequest) {
       maxAge: expiresIn,
     });
 
+    // Set refresh token cookie — longer-lived (30 min SSO idle)
+    // The BFF proxy will use this to silently refresh the access token
     if (refreshToken) {
       response.cookies.set('hcx_refresh', refreshToken, {
         path: '/',

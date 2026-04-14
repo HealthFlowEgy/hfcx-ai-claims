@@ -4,9 +4,9 @@ import { NextResponse, type NextRequest } from 'next/server';
  * Next.js middleware — auth + locale default (SRS §9.3).
  *
  * 1. If the user hits any portal route without a valid session (no
- *    `hcx_session` cookie AND the page isn't the landing / public),
- *    we redirect to Keycloak, preserving the original URL via the
- *    `state` parameter for post-login redirect.
+ *    `hcx_session` cookie AND no `hcx_refresh` cookie), we redirect
+ *    to Keycloak, preserving the original URL via the `state`
+ *    parameter for post-login redirect.
  *
  * 2. If the `hcx_locale` cookie is missing, we seed it to Arabic so
  *    the server-side `i18n.ts` resolver sees the correct default on
@@ -16,6 +16,11 @@ import { NextResponse, type NextRequest } from 'next/server';
  * validation happens at the BFF layer (SEC-001). The middleware only
  * catches obviously unauthenticated requests and avoids a blank
  * page-forever experience.
+ *
+ * When the access token (hcx_session) expires but the refresh token
+ * (hcx_refresh) is still valid, the middleware lets the request
+ * through. The BFF proxy (/api/proxy) will silently refresh the
+ * access token using the refresh token.
  */
 
 const PORTAL_PREFIXES = ['/provider', '/payer', '/siu', '/regulatory'];
@@ -46,14 +51,15 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  // Portal routes require a session cookie. In development we accept
-  // the absence of the cookie (the BFF uses dev-tokens); production
-  // uses Keycloak and refuses the portal shell without the cookie.
+  // Portal routes require a session cookie. If the access token has
+  // expired but the refresh token is still present, we let the request
+  // through — the BFF proxy will silently refresh the access token.
   const isPortalRoute = PORTAL_PREFIXES.some((p) => pathname.startsWith(p));
   const hasSession = request.cookies.has('hcx_session');
+  const hasRefresh = request.cookies.has('hcx_refresh');
   const isProduction = process.env.NODE_ENV === 'production';
 
-  if (isPortalRoute && isProduction && !hasSession) {
+  if (isPortalRoute && isProduction && !hasSession && !hasRefresh) {
     const keycloakUrl =
       process.env.KEYCLOAK_URL ?? 'https://auth.claim.healthflow.tech';
     const realm = process.env.KEYCLOAK_REALM ?? 'hcx';
