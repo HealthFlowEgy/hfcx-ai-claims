@@ -95,12 +95,13 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
 
 // ── Coordinator ──────────────────────────────────────────────────────
 export const api = {
-  coordinateClaim(
+  async coordinateClaim(
     fhirClaimBundle: unknown,
     hcxHeaders: Record<string, string>,
     opts: FetchOptions = {},
   ): Promise<AICoordinateResponse> {
-    return request<AICoordinateResponse>('/internal/ai/coordinate', {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw: any = await request('/internal/ai/coordinate', {
       method: 'POST',
       body: JSON.stringify({
         fhir_claim_bundle: fhirClaimBundle,
@@ -108,6 +109,23 @@ export const api = {
       }),
       ...opts,
     });
+    // Normalize backend field names to frontend types:
+    // fraud_detection → fraud, medical_necessity → necessity
+    return {
+      correlation_id: raw.correlation_id ?? '',
+      claim_id: raw.claim_id ?? '',
+      adjudication_decision: raw.adjudication_decision ?? 'pended',
+      overall_confidence: raw.overall_confidence ?? 0,
+      requires_human_review: raw.requires_human_review ?? true,
+      human_review_reasons: raw.human_review_reasons ?? [],
+      eligibility: raw.eligibility ?? null,
+      coding: raw.coding ?? null,
+      fraud: raw.fraud_detection ?? raw.fraud ?? null,
+      necessity: raw.medical_necessity ?? raw.necessity ?? null,
+      processing_time_ms: raw.processing_time_ms ?? 0,
+      model_versions: raw.model_versions ?? {},
+      fhir_extensions: raw.fhir_extensions ?? [],
+    };
   },
 
   // ── Direct agent endpoints ──────────────────────────────────────────

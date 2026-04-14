@@ -3,15 +3,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { ClaimCard } from '@/components/shared/claim-card';
 import { ClaimStatusBadge } from '@/components/shared/claim-status-badge';
+import { AIRecommendationCard } from '@/components/shared/ai-recommendation-card';
 import { api } from '@/lib/api';
-import type { ClaimStatus, ClaimSummary } from '@/lib/types';
+import type { AICoordinateResponse, ClaimStatus, ClaimSummary } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 /**
@@ -19,7 +20,7 @@ import { cn } from '@/lib/utils';
  *
  * 80%+ of reviewer time lives here. Four columns map to the core
  * workflow states; clicking a card opens a right-side detail panel
- * with the decision form that persists via /internal/ai/feedback.
+ * with the AI analysis results and the decision form.
  */
 
 const COLUMN_STATUSES: Record<string, ClaimStatus[]> = {
@@ -141,6 +142,12 @@ export default function PayerClaimsQueuePage() {
             </CardHeader>
             <Separator />
             <CardContent className="space-y-4 p-4">
+              {/* AI Analysis Section */}
+              <AIAnalysisPanel claim={selectedClaim} />
+
+              <Separator />
+
+              {/* Decision Panel */}
               <DecisionPanel
                 claim={selectedClaim}
                 onSubmitted={() => setSelected(null)}
@@ -189,6 +196,121 @@ function KanbanColumn({
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Fetches and displays the full AI adjudication analysis for a selected claim.
+ * Uses the claim's correlation_id to re-run the coordinate endpoint.
+ */
+function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
+  const t = useTranslations('ai');
+  const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const runAnalysis = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Build a minimal FHIR bundle from the claim summary for re-analysis
+      const bundle = {
+        resourceType: 'Bundle',
+        type: 'collection',
+        entry: [
+          {
+            resource: {
+              resourceType: 'Claim',
+              id: claim.claim_id,
+              type: { coding: [{ code: claim.claim_type }] },
+              patient: { reference: `Patient/${claim.patient_nid_masked}` },
+              provider: { reference: `Organization/${claim.provider_id}` },
+              insurance: [
+                { coverage: { reference: `Coverage/${claim.payer_id}` } },
+              ],
+              created: claim.submitted_at,
+              total: { value: claim.total_amount, currency: 'EGP' },
+            },
+          },
+        ],
+      };
+      const result = await api.coordinateClaim(bundle, {
+        'X-HCX-Sender-Code': claim.provider_id,
+        'X-HCX-Recipient-Code': claim.payer_id,
+        'X-HCX-Correlation-ID': claim.correlation_id,
+        'X-HCX-Workflow-ID': 'payer-review',
+        'X-HCX-API-Call-ID': `review-${claim.claim_id}`,
+      });
+      setAiResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run AI analysis');
+    } finally {
+      setLoading(false);
+    }
+  }, [claim]);
+
+  if (aiResult) {
+    return <AIRecommendationCard analysis={aiResult} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Show existing AI summary from the claim list */}
+      {claim.ai_recommendation && (
+        <div className="rounded-lg border border-hcx-primary/20 bg-hcx-primary-light/30 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">{t('recommendationBadge')}</span>
+            <span className="rounded-full bg-hcx-primary/10 px-2 py-0.5 text-xs font-semibold capitalize text-hcx-primary">
+              {claim.ai_recommendation}
+            </span>
+          </div>
+          {claim.ai_risk_score != null && (
+            <div className="mt-2">
+              <div className="flex items-center justify-between text-xs text-hcx-text-muted">
+                <span>Risk Score</span>
+                <span>{(claim.ai_risk_score * 100).toFixed(0)}%</span>
+              </div>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    claim.ai_risk_score > 0.7
+                      ? 'bg-hcx-danger'
+                      : claim.ai_risk_score > 0.4
+                      ? 'bg-hcx-warning'
+                      : 'bg-hcx-success',
+                  )}
+                  style={{ width: `${claim.ai_risk_score * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Run full AI analysis button */}
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={runAnalysis}
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <Loader2 className="size-4 animate-spin" />
+            Running AI Analysis...
+          </>
+        ) : (
+          'Run Full AI Analysis'
+        )}
+      </Button>
+
+      {error && (
+        <p className="text-xs text-hcx-danger" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
