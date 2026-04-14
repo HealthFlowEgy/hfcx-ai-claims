@@ -19,12 +19,12 @@ export default async function SiuLayout({
   const tPortals = await getTranslations('portals');
 
   const nav: NavItem[] = [
-    { label: tNav('dashboard'), href: '/siu', icon: LayoutDashboard },
-    { label: tNav('flaggedClaims'), href: '/siu/flagged', icon: AlertTriangle },
-    { label: tNav('investigations'), href: '/siu/investigations', icon: Search },
-    { label: tNav('networkAnalysis'), href: '/siu/network', icon: Network },
-    { label: tNav('crossPayerSearch'), href: '/siu/search', icon: Database },
-    { label: tNav('reports'), href: '/siu/reports', icon: FileText },
+    { label: tNav('dashboard'), href: '/siu', icon: <LayoutDashboard className="size-4" aria-hidden /> },
+    { label: tNav('flaggedClaims'), href: '/siu/flagged', icon: <AlertTriangle className="size-4" aria-hidden /> },
+    { label: tNav('investigations'), href: '/siu/investigations', icon: <Search className="size-4" aria-hidden /> },
+    { label: tNav('networkAnalysis'), href: '/siu/network', icon: <Network className="size-4" aria-hidden /> },
+    { label: tNav('crossPayerSearch'), href: '/siu/search', icon: <Database className="size-4" aria-hidden /> },
+    { label: tNav('reports'), href: '/siu/reports', icon: <FileText className="size-4" aria-hidden /> },
   ];
 
   return (

@@ -21,14 +21,14 @@ export default async function PayerLayout({
   const tPortals = await getTranslations('portals');
 
   const nav: NavItem[] = [
-    { label: tNav('dashboard'), href: '/payer', icon: LayoutDashboard },
-    { label: tNav('claimsQueue'), href: '/payer/claims', icon: Inbox },
-    { label: tNav('preAuth'), href: '/payer/preauth', icon: ClipboardCheck },
-    { label: tNav('settledClaims'), href: '/payer/settled', icon: CheckSquare },
-    { label: tNav('fraudAlerts'), href: '/payer/fraud', icon: ShieldAlert },
-    { label: tNav('analytics'), href: '/payer/analytics', icon: BarChart3 },
-    { label: tNav('communications'), href: '/payer/communications', icon: MessageSquare },
-    { label: tNav('settings'), href: '/payer/settings', icon: Settings },
+    { label: tNav('dashboard'), href: '/payer', icon: <LayoutDashboard className="size-4" aria-hidden /> },
+    { label: tNav('claimsQueue'), href: '/payer/claims', icon: <Inbox className="size-4" aria-hidden /> },
+    { label: tNav('preAuth'), href: '/payer/preauth', icon: <ClipboardCheck className="size-4" aria-hidden /> },
+    { label: tNav('settledClaims'), href: '/payer/settled', icon: <CheckSquare className="size-4" aria-hidden /> },
+    { label: tNav('fraudAlerts'), href: '/payer/fraud', icon: <ShieldAlert className="size-4" aria-hidden /> },
+    { label: tNav('analytics'), href: '/payer/analytics', icon: <BarChart3 className="size-4" aria-hidden /> },
+    { label: tNav('communications'), href: '/payer/communications', icon: <MessageSquare className="size-4" aria-hidden /> },
+    { label: tNav('settings'), href: '/payer/settings', icon: <Settings className="size-4" aria-hidden /> },
   ];
 
   return (

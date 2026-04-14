@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { LanguageToggle } from '@/components/shared/language-toggle';
@@ -12,7 +11,7 @@ import { cn } from '@/lib/utils';
 export interface NavItem {
   label: string;
   href: string;
-  icon: LucideIcon;
+  icon: React.ReactNode;
   badge?: string;
 }
 
@@ -86,7 +85,6 @@ export function PortalShell({ portal, nav, children }: PortalShellProps) {
               const active =
                 pathname === item.href ||
                 (item.href !== '/' && pathname.startsWith(item.href));
-              const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
@@ -100,7 +98,7 @@ export function PortalShell({ portal, nav, children }: PortalShellProps) {
                   aria-current={active ? 'page' : undefined}
                 >
                   <span className="flex items-center gap-2">
-                    <Icon className="size-4" aria-hidden />
+                    {item.icon}
                     {item.label}
                   </span>
                   {item.badge && (

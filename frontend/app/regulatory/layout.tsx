@@ -19,12 +19,12 @@ export default async function RegulatoryLayout({
   const tPortals = await getTranslations('portals');
 
   const nav: NavItem[] = [
-    { label: tNav('marketOverview'), href: '/regulatory', icon: Globe },
-    { label: tNav('insurers'), href: '/regulatory/insurers', icon: Building2 },
-    { label: tNav('geographic'), href: '/regulatory/geographic', icon: Map },
-    { label: tNav('fraudOversight'), href: '/regulatory/fraud', icon: ShieldAlert },
-    { label: tNav('compliance'), href: '/regulatory/compliance', icon: FileCheck },
-    { label: tNav('reports'), href: '/regulatory/reports', icon: Download },
+    { label: tNav('marketOverview'), href: '/regulatory', icon: <Globe className="size-4" aria-hidden /> },
+    { label: tNav('insurers'), href: '/regulatory/insurers', icon: <Building2 className="size-4" aria-hidden /> },
+    { label: tNav('geographic'), href: '/regulatory/geographic', icon: <Map className="size-4" aria-hidden /> },
+    { label: tNav('fraudOversight'), href: '/regulatory/fraud', icon: <ShieldAlert className="size-4" aria-hidden /> },
+    { label: tNav('compliance'), href: '/regulatory/compliance', icon: <FileCheck className="size-4" aria-hidden /> },
+    { label: tNav('reports'), href: '/regulatory/reports', icon: <Download className="size-4" aria-hidden /> },
   ];
 
   return (
