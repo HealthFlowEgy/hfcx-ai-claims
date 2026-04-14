@@ -336,7 +336,11 @@
       "suspiciousCluster": "مجموعة مشبوهة",
       "nodeProvider": "مقدم خدمة",
       "nodePatient": "مريض",
-      "nodePharmacy": "صيدلية"
+      "nodePharmacy": "صيدلية",
+      "errorLoading": "فشل تحميل بيانات الشبكة",
+      "retry": "إعادة المحاولة",
+      "noData": "لا توجد بيانات",
+      "loading": "جار التحميل…"
     },
     "search": {
       "title": "البحث عبر شركات التأمين",

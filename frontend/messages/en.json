@@ -336,7 +336,11 @@
       "suspiciousCluster": "Suspicious cluster",
       "nodeProvider": "Provider",
       "nodePatient": "Patient",
-      "nodePharmacy": "Pharmacy"
+      "nodePharmacy": "Pharmacy",
+      "errorLoading": "Failed to load network data",
+      "retry": "Retry",
+      "noData": "No data available",
+      "loading": "Loading…"
     },
     "search": {
       "title": "Cross-payer search",
