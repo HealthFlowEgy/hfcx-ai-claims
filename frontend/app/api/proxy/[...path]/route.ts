@@ -150,7 +150,7 @@ async function proxyRequest(
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
-        maxAge: 1800,
+        maxAge: 3600,
       });
     }
 

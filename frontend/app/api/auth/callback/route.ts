@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const tokens = await tokenResponse.json();
     const accessToken = tokens.access_token;
     const refreshToken = tokens.refresh_token;
-    const expiresIn = tokens.expires_in || 300; // default 5 min
+    const expiresIn = tokens.expires_in || 1800; // default 30 min
 
     // Set the session cookie with the access token
     const response = NextResponse.redirect(`${portalBase}${state}`);
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
-        maxAge: 1800, // 30 min SSO session idle
+        maxAge: 3600, // 1 hour SSO session idle
       });
     }
 
