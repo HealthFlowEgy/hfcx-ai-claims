@@ -3,8 +3,8 @@
 # Ollama Deployment — SRS §2.1 Self-hosted LLM Serving
 #
 # Deploys three Ollama instances across the ollama-pool nodes (3x s-4vcpu-8gb):
-#   1. ollama-medgemma:  MedGemma 27B Q4 (medical reasoning)  — dedicated node
-#   2. ollama-llama:     Llama 3.1 8B Q5 (ICD-10 coding)      — dedicated node
+#   1. ollama-medgemma:  MedGemma 4B (medical reasoning)       — dedicated node
+#   2. ollama-llama:     Llama 3.1 8B Q4 (ICD-10 coding)      — dedicated node
 #   3. ollama-qwen:      Qwen3 8B (Arabic NLP) + nomic-embed  — dedicated node
 #
 # Each model gets a full 8GB node to avoid memory contention.
@@ -57,7 +57,7 @@ spec:
 
 ---
 # ════════════════════════════════════════════════════════════════════════════
-# §1  MedGemma 27B — SRS §2.1 Primary Medical Reasoning
+# §1  MedGemma 4B — SRS §2.1 Primary Medical Reasoning
 # ════════════════════════════════════════════════════════════════════════════
 apiVersion: apps/v1
 kind: Deployment
@@ -107,8 +107,8 @@ spec:
               echo "Starting Ollama server for model pull..."
               ollama serve &
               sleep 5
-              echo "Pulling alibayram/medgemma:27b (SRS §2.1 — primary medical reasoning)..."
-              ollama pull alibayram/medgemma:27b || echo "WARN: medgemma pull failed"
+              echo "Pulling alibayram/medgemma:4b (SRS §2.1 — primary medical reasoning, 4B fits 8GB nodes)..."
+              ollama pull alibayram/medgemma:4b || echo "WARN: medgemma pull failed"
               echo "Model pull complete."
               kill %1 2>/dev/null || true
           env:
@@ -122,10 +122,10 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: "4Gi"
+              memory: "3Gi"
             limits:
               cpu: "3"
-              memory: "7Gi"
+              memory: "6Gi"
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -150,10 +150,10 @@ spec:
           resources:
             requests:
               cpu: "2"
-              memory: "5Gi"
+              memory: "4Gi"
             limits:
               cpu: "3500m"
-              memory: "7Gi"
+              memory: "6400Mi"
           readinessProbe:
             httpGet:
               path: /api/tags
@@ -224,8 +224,8 @@ spec:
               echo "Starting Ollama server for model pull..."
               ollama serve &
               sleep 5
-              echo "Pulling llama3.1:8b-instruct-q5_K_M (SRS §2.3 — ICD-10 coding)..."
-              ollama pull llama3.1:8b-instruct-q5_K_M || ollama pull llama3.1:8b || echo "WARN: llama pull failed"
+              echo "Pulling llama3.1:8b-instruct-q4_K_M (SRS §2.3 — ICD-10 coding, Q4 fits 8GB nodes)..."
+              ollama pull llama3.1:8b-instruct-q4_K_M || ollama pull llama3.1:8b || echo "WARN: llama pull failed"
               echo "Model pull complete."
               kill %1 2>/dev/null || true
           env:
@@ -239,10 +239,10 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: "4Gi"
+              memory: "3Gi"
             limits:
               cpu: "3"
-              memory: "7Gi"
+              memory: "6Gi"
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -256,7 +256,7 @@ spec:
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "1"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "1"
             - name: OLLAMA_KEEP_ALIVE
@@ -267,10 +267,10 @@ spec:
           resources:
             requests:
               cpu: "2"
-              memory: "5Gi"
+              memory: "4Gi"
             limits:
               cpu: "3500m"
-              memory: "7Gi"
+              memory: "6400Mi"
           readinessProbe:
             httpGet:
               path: /api/tags
@@ -358,10 +358,10 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: "4Gi"
+              memory: "3Gi"
             limits:
               cpu: "3"
-              memory: "7Gi"
+              memory: "6Gi"
       containers:
         - name: ollama
           image: ollama/ollama:latest
@@ -375,7 +375,7 @@ spec:
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
             - name: OLLAMA_NUM_PARALLEL
-              value: "2"
+              value: "1"
             - name: OLLAMA_MAX_LOADED_MODELS
               value: "2"
             - name: OLLAMA_KEEP_ALIVE
@@ -386,10 +386,10 @@ spec:
           resources:
             requests:
               cpu: "2"
-              memory: "5Gi"
+              memory: "4Gi"
             limits:
               cpu: "3500m"
-              memory: "7Gi"
+              memory: "6400Mi"
           readinessProbe:
             httpGet:
               path: /api/tags

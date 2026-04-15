@@ -10,7 +10,7 @@ import {
   useWatch,
 } from 'react-hook-form';
 import { useLocale, useTranslations } from 'next-intl';
-import { Loader2, Plus, Send, Trash2 } from 'lucide-react';
+import { AlertCircle, Loader2, Plus, Send, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -24,6 +24,7 @@ import { AIRecommendationCard } from '@/components/shared/ai-recommendation-card
 import { api } from '@/lib/api';
 import type { AICoordinateResponse } from '@/lib/types';
 import { formatEgp } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 /**
  * SRS §4.2.2 — New Claim Submission form.
@@ -34,15 +35,15 @@ import { formatEgp } from '@/lib/utils';
  */
 
 const serviceLineSchema = z.object({
-  service_date: z.string().min(1),
-  icd10_code: z.string().regex(/^[A-Z]\d{2}(\.\d{1,4})?$/i, 'Invalid ICD-10'),
-  procedure_code: z.string().min(1),
-  quantity: z.coerce.number().int().positive(),
-  amount: z.coerce.number().nonnegative(),
+  service_date: z.string().min(1, 'Service date is required'),
+  icd10_code: z.string().regex(/^[A-Z]\d{2}(\.\d{1,4})?$/i, 'Invalid ICD-10 code (e.g. J06.9)'),
+  procedure_code: z.string().min(1, 'Procedure code is required'),
+  quantity: z.coerce.number().int().positive('Quantity must be positive'),
+  amount: z.coerce.number().nonnegative('Amount must be non-negative'),
 });
 
 const claimSchema = z.object({
-  patient_nid: z.string().regex(/^\d{14}$/),
+  patient_nid: z.string().regex(/^\d{14}$/, 'National ID must be exactly 14 digits'),
   claim_type: z.enum([
     'outpatient',
     'inpatient',
@@ -51,14 +52,25 @@ const claimSchema = z.object({
     'dental',
     'vision',
   ]),
-  payer_id: z.string().min(1),
-  provider_id: z.string().min(1),
-  service_lines: z.array(serviceLineSchema).min(1),
+  payer_id: z.string().min(1, 'Payer ID is required'),
+  provider_id: z.string().min(1, 'Provider ID is required'),
+  service_lines: z.array(serviceLineSchema).min(1, 'At least one service line is required'),
   clinical_notes: z.string().optional(),
   prescription_id: z.string().optional(),
 });
 
 type ClaimFormValues = z.infer<typeof claimSchema>;
+
+/** Inline field error message component */
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p className="mt-1 flex items-center gap-1 text-xs text-hcx-danger" role="alert">
+      <AlertCircle className="size-3 shrink-0" />
+      {message}
+    </p>
+  );
+}
 
 export default function NewClaimPage() {
   const t = useTranslations('provider.newClaim');
@@ -98,6 +110,7 @@ export default function NewClaimPage() {
     control: form.control,
     name: 'service_lines',
   });
+
   const watchedClaimType = useWatch({
     control: form.control,
     name: 'claim_type',
@@ -178,6 +191,18 @@ export default function NewClaimPage() {
     },
     onSuccess: (res) => {
       setAiResult(res);
+      toast({
+        title: 'Claim Submitted Successfully',
+        description: `Claim ${res.claim_id} — Decision: ${res.adjudication_decision}`,
+        variant: 'success',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Submission Failed',
+        description: error instanceof Error ? error.message : 'An error occurred while processing the claim.',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -269,7 +294,23 @@ export default function NewClaimPage() {
       )}
 
       <form
-        onSubmit={form.handleSubmit((v) => submit.mutate(v))}
+        onSubmit={form.handleSubmit(
+          (v) => submit.mutate(v),
+          (errors) => {
+            // Show toast when validation fails so user knows something went wrong
+            const errorCount = Object.keys(errors).length;
+            const serviceLineErrors = errors.service_lines;
+            let totalErrors = errorCount;
+            if (Array.isArray(serviceLineErrors)) {
+              totalErrors += serviceLineErrors.filter(Boolean).length - 1;
+            }
+            toast({
+              title: 'Validation Error',
+              description: `Please fix ${totalErrors} error${totalErrors > 1 ? 's' : ''} in the form before submitting.`,
+              variant: 'destructive',
+            });
+          },
+        )}
         className="space-y-6"
       >
         <Card>
@@ -277,16 +318,21 @@ export default function NewClaimPage() {
             <CardTitle>{tClaim('patientNid')}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Controller
-              control={form.control}
-              name="patient_nid"
-              render={({ field }) => (
-                <PatientNidInput
-                  value={field.value}
-                  onChange={field.onChange}
-                />
-              )}
-            />
+            <div>
+              <Controller
+                control={form.control}
+                name="patient_nid"
+                render={({ field, fieldState }) => (
+                  <div>
+                    <PatientNidInput
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                    <FieldError message={fieldState.error?.message} />
+                  </div>
+                )}
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="claim-type">{t('claimType')}</Label>
               <select
@@ -302,14 +348,17 @@ export default function NewClaimPage() {
                   ),
                 )}
               </select>
+              <FieldError message={form.formState.errors.claim_type?.message} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="payer-id">{tClaim('payer')}</Label>
               <Input id="payer-id" {...form.register('payer_id')} />
+              <FieldError message={form.formState.errors.payer_id?.message} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="provider-id">{tClaim('providerId')}</Label>
               <Input id="provider-id" {...form.register('provider_id')} />
+              <FieldError message={form.formState.errors.provider_id?.message} />
             </div>
           </CardContent>
         </Card>
@@ -347,17 +396,21 @@ export default function NewClaimPage() {
                     type="date"
                     {...form.register(`service_lines.${index}.service_date`)}
                   />
+                  <FieldError message={form.formState.errors.service_lines?.[index]?.service_date?.message} />
                 </div>
                 <div className="md:col-span-2">
                   <Label>ICD-10</Label>
                   <Controller
                     control={form.control}
                     name={`service_lines.${index}.icd10_code`}
-                    render={({ field }) => (
-                      <Icd10Selector
-                        value={field.value}
-                        onChange={field.onChange}
-                      />
+                    render={({ field, fieldState }) => (
+                      <div>
+                        <Icd10Selector
+                          value={field.value}
+                          onChange={field.onChange}
+                        />
+                        <FieldError message={fieldState.error?.message} />
+                      </div>
                     )}
                   />
                 </div>
@@ -367,6 +420,7 @@ export default function NewClaimPage() {
                     placeholder="99213"
                     {...form.register(`service_lines.${index}.procedure_code`)}
                   />
+                  <FieldError message={form.formState.errors.service_lines?.[index]?.procedure_code?.message} />
                 </div>
                 <div className="md:col-span-1">
                   <Label>Qty</Label>
@@ -375,6 +429,7 @@ export default function NewClaimPage() {
                     min={1}
                     {...form.register(`service_lines.${index}.quantity`)}
                   />
+                  <FieldError message={form.formState.errors.service_lines?.[index]?.quantity?.message} />
                 </div>
                 <div className="md:col-span-1">
                   <Label>{tc('amount')}</Label>
@@ -384,6 +439,7 @@ export default function NewClaimPage() {
                     min={0}
                     {...form.register(`service_lines.${index}.amount`)}
                   />
+                  <FieldError message={form.formState.errors.service_lines?.[index]?.amount?.message} />
                 </div>
                 <div className="flex items-end md:col-span-1">
                   {fields.length > 1 && (
