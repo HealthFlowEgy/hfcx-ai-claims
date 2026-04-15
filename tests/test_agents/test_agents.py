@@ -209,12 +209,38 @@ class TestMedicalCodingAgent:
     @pytest.mark.asyncio
     @patch("src.agents.medical_coding.LLMService")
     @patch("src.agents.medical_coding.NDPService")
+    @patch("src.agents.medical_coding.ArabicMedicalNLPService")
+    @patch("src.agents.medical_coding.HealthcareNLPService")
     async def test_arabic_entities_extracted_from_notes(
-        self, mock_ndp_cls, mock_llm_cls, sample_claim
+        self,
+        mock_healthcare_cls,
+        mock_arabic_cls,
+        mock_ndp_cls,
+        mock_llm_cls,
+        sample_claim,
     ):
-        arabic_response = json.dumps(
-            {"entities": ["ارتفاع في درجة الحرارة", "ألم في الحلق"]}
-        )
+        # Mock Arabic NLP service to return known entities
+        mock_arabic = AsyncMock()
+        mock_arabic.extract_medical_entities.return_value = {
+            "entities": ["ارتفاع في درجة الحرارة", "ألم في الحلق"],
+            "diseases": ["ارتفاع في درجة الحرارة"],
+            "medications": [],
+            "procedures": [],
+            "body_parts": [],
+            "backend": "arabert_transformers",
+            "confidence": 0.80,
+        }
+        mock_arabic_cls.return_value = mock_arabic
+
+        # Mock Healthcare NLP service
+        mock_healthcare = AsyncMock()
+        mock_healthcare.extract_clinical_entities.return_value = {
+            "entities": [],
+            "suggested_icd10": [],
+            "backend": "medspacy",
+        }
+        mock_healthcare_cls.return_value = mock_healthcare
+
         coding_response = json.dumps(
             {
                 "icd10_validations": [
@@ -226,7 +252,7 @@ class TestMedicalCodingAgent:
             }
         )
         mock_llm = AsyncMock()
-        mock_llm.complete.side_effect = [arabic_response, coding_response]
+        mock_llm.complete.return_value = coding_response
         mock_llm_cls.return_value = mock_llm
         mock_ndp_cls.return_value = AsyncMock()
 
@@ -235,6 +261,8 @@ class TestMedicalCodingAgent:
 
         assert len(result.arabic_entities_extracted) == 2
         assert "ارتفاع في درجة الحرارة" in result.arabic_entities_extracted
+        assert result.arabic_nlp_backend == "arabert_transformers"
+        assert result.healthcare_nlp_backend == "medspacy"
 
     @pytest.mark.asyncio
     @patch("src.agents.medical_coding.LLMService")
