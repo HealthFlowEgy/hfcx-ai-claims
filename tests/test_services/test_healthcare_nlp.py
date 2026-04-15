@@ -7,6 +7,7 @@ import pytest
 
 from src.services.healthcare_nlp_service import (
     ICD10_KEYWORD_MAP,
+    MEDICAL_ABBREVIATIONS,
     HealthcareNLPService,
 )
 
@@ -58,3 +59,69 @@ class TestHealthcareNLPService:
         assert "I10" in codes
         has_diabetes = any(c.startswith("E11") for c in codes)
         assert has_diabetes
+
+    @pytest.mark.asyncio
+    async def test_abbreviation_expansion(self):
+        svc = HealthcareNLPService()
+        result = await svc.extract_clinical_entities(
+            "Patient with HTN and DM2 on ABX"
+        )
+        expanded = result.get("abbreviations_expanded", {})
+        assert "HTN" in expanded
+        assert expanded["HTN"] == "Hypertension"
+        assert "DM2" in expanded
+
+    @pytest.mark.asyncio
+    async def test_negation_detection(self):
+        svc = HealthcareNLPService()
+        result = await svc.extract_clinical_entities(
+            "Patient denies diabetes but has hypertension"
+        )
+        icd10 = result.get("suggested_icd10", [])
+        codes = [s.get("code") for s in icd10]
+        # Hypertension should be present
+        assert "I10" in codes
+        # Diabetes should be negated and excluded
+        has_diabetes = any(c.startswith("E11") for c in codes)
+        assert not has_diabetes
+
+    @pytest.mark.asyncio
+    async def test_icd10_deduplication(self):
+        svc = HealthcareNLPService()
+        result = await svc.extract_clinical_entities(
+            "diabetes mellitus type 2 diabetes"
+        )
+        icd10 = result.get("suggested_icd10", [])
+        codes = [s.get("code") for s in icd10]
+        # Should not have duplicate E11.9
+        assert codes.count("E11.9") == 1
+
+    def test_medical_abbreviations_not_empty(self):
+        assert len(MEDICAL_ABBREVIATIONS) > 20
+
+    @pytest.mark.asyncio
+    async def test_chest_pain_detected(self):
+        svc = HealthcareNLPService()
+        result = await svc.extract_clinical_entities(
+            "Patient presents with chest pain"
+        )
+        icd10 = result.get("suggested_icd10", [])
+        codes = [s.get("code") for s in icd10]
+        assert "R07.9" in codes
+
+    @pytest.mark.asyncio
+    async def test_fever_detected(self):
+        svc = HealthcareNLPService()
+        result = await svc.extract_clinical_entities("Patient has fever")
+        icd10 = result.get("suggested_icd10", [])
+        codes = [s.get("code") for s in icd10]
+        assert "R50.9" in codes
+
+    @pytest.mark.asyncio
+    async def test_no_false_positive_on_unrelated_text(self):
+        svc = HealthcareNLPService()
+        result = await svc.extract_clinical_entities(
+            "The weather is sunny today"
+        )
+        icd10 = result.get("suggested_icd10", [])
+        assert len(icd10) == 0

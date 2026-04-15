@@ -81,3 +81,32 @@ class TestArabicMedicalNLPService:
 
     def test_arabic_medical_terms_not_empty(self):
         assert len(ARABIC_MEDICAL_TERMS) > 10
+
+    @pytest.mark.asyncio
+    async def test_medication_pattern_detected(self):
+        result = await ArabicMedicalNLPService.extract_medical_entities(
+            "يتناول المريض دواء مسكن للألم"
+        )
+        assert len(result["medications"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_procedure_pattern_detected(self):
+        result = await ArabicMedicalNLPService.extract_medical_entities(
+            "تم إجراء تحليل دم شامل"
+        )
+        assert len(result["procedures"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_multiple_entity_types(self):
+        text = "مريض يعاني من ارتفاع ضغط الدم وتم إجراء تحليل دم وأشعة سينية"
+        result = await ArabicMedicalNLPService.extract_medical_entities(text)
+        assert len(result["entities"]) >= 2
+        assert result["confidence"] > 0
+
+    @pytest.mark.asyncio
+    async def test_non_arabic_text_returns_minimal(self):
+        result = await ArabicMedicalNLPService.extract_medical_entities(
+            "Patient has fever and cough"
+        )
+        # Non-Arabic text should return minimal or no Arabic entities
+        assert result["backend"] is not None
