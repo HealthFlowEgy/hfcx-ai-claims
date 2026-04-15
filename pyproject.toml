@@ -52,10 +52,14 @@ dependencies = [
     "sentence-transformers==3.2.1",
 
     # Healthcare ML / NLP
-    # Note: pyhealth 1.1.5 pins pandas<2, which is incompatible with the
-    # pandas 2.x required by the rest of the stack. It is also not
-    # imported anywhere in src/ or tests/, so it was removed. If a future
-    # feature needs it, re-add against a pandas 2.x-compatible release.
+    # SRS §2.2: AraBERT (Arabic NER) + spaCy/medspaCy (Spark NLP replacement)
+    # PyHealth removed due to pandas<2 conflict; equivalent functionality
+    # implemented in src/services/healthcare_nlp_service.py.
+    "spacy>=3.7,<4.0",
+    "medspacy>=1.2.0",
+    "camel-tools>=1.5.0",
+    "transformers>=4.40,<5.0",
+    "torch>=2.2,<3.0",
     "scikit-learn==1.5.2",
     "xgboost==2.1.2",
     "pyod==2.0.2",

@@ -1,0 +1,29 @@
+{
+  "accuracy": 0.998,
+  "precision": 0.9875,
+  "recall": 0.9875,
+  "f1": 0.9875,
+  "roc_auc": 0.9999592391304348,
+  "n_train": 8000,
+  "n_test": 2000,
+  "n_fraud_train": 640,
+  "n_fraud_test": 160,
+  "feature_importance": {
+    "total_amount": 0.3147493004798889,
+    "diagnosis_count": 0.26432618498802185,
+    "procedure_count": 0.07499097287654877,
+    "drug_count": 0.017229977995157242,
+    "attachment_count": 0.035642076283693314,
+    "has_clinical_notes": 0.004056540783494711,
+    "has_prescription": 0.0007667005993425846,
+    "claim_lag_days": 0.06399951875209808,
+    "days_since_claim": 0.0013259960105642676,
+    "service_weekday": 0.022177783772349358,
+    "is_weekend": 0.035528574138879776,
+    "hour_of_service": 0.022121384739875793,
+    "amount_per_diagnosis": 0.07104454934597015,
+    "amount_per_procedure": 0.041582126170396805,
+    "claim_type_code": 0.0028593135066330433,
+    "provider_hash_bucket": 0.027598993852734566
+  }
+}

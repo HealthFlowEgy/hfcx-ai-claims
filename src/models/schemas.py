@@ -177,6 +177,26 @@ class CodingValidationResult(BaseModel):
         default=None,
         description="FR-MC-003: NDP cross-reference result — None if not a pharmacy claim",
     )
+    # SRS §2.2: Arabic NLP (AraBERT/CAMeL Tools) and Healthcare NLP (spaCy/medspaCy)
+    arabic_nlp_backend: str | None = Field(
+        default=None,
+        description=(
+            "Backend used for Arabic NER:"
+            " camel_tools_arabert, arabert_transformers, or regex"
+        ),
+    )
+    healthcare_nlp_backend: str | None = Field(
+        default=None,
+        description="Backend used for English clinical NER: medspacy, spacy, or regex",
+    )
+    healthcare_nlp_entities: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Clinical entities extracted by spaCy/medspaCy (Spark NLP replacement)",
+    )
+    suggested_icd10_from_nlp: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="ICD-10 codes suggested by Healthcare NLP keyword matching",
+    )
     error_message: str | None = None
 
 

@@ -1,0 +1,529 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Ollama Deployment — SRS §2.1 Self-hosted LLM Serving
+#
+# Deploys three Ollama instances across the ollama-pool nodes (3x s-4vcpu-8gb):
+#   1. ollama-medgemma:  MedGemma 27B Q4 (medical reasoning)  — dedicated node
+#   2. ollama-llama:     Llama 3.1 8B Q5 (ICD-10 coding)      — dedicated node
+#   3. ollama-qwen:      Qwen3 8B (Arabic NLP) + nomic-embed  — dedicated node
+#
+# Each model gets a full 8GB node to avoid memory contention.
+# Models are pulled on first boot via init containers and persisted on PVCs.
+# LiteLLM routes to these via the service endpoints.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── PersistentVolumeClaims ──────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-medgemma-models
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: medgemma
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 25Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-llama-models
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: llama
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 15Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-qwen-models
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: qwen
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 15Gi
+
+---
+# ════════════════════════════════════════════════════════════════════════════
+# §1  MedGemma 27B — SRS §2.1 Primary Medical Reasoning
+# ════════════════════════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-medgemma
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: medgemma
+    app.kubernetes.io/component: llm-serving
+    app.kubernetes.io/name: hfcx-ai-claims
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+      tier: medgemma
+  template:
+    metadata:
+      labels:
+        app: ollama
+        tier: medgemma
+    spec:
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: gpu
+          effect: NoSchedule
+      nodeSelector:
+        workload: gpu
+      # Anti-affinity: ensure each Ollama instance lands on a different node
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [ollama]
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: pull-models
+          image: ollama/ollama:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Starting Ollama server for model pull..."
+              ollama serve &
+              sleep 5
+              echo "Pulling alibayram/medgemma:27b (SRS §2.1 — primary medical reasoning)..."
+              ollama pull alibayram/medgemma:27b || echo "WARN: medgemma pull failed"
+              echo "Model pull complete."
+              kill %1 2>/dev/null || true
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "3"
+              memory: "7Gi"
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+              protocol: TCP
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "2"
+              memory: "5Gi"
+            limits:
+              cpu: "3500m"
+              memory: "7Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-medgemma-models
+
+---
+# ════════════════════════════════════════════════════════════════════════════
+# §2  Llama 3.1 8B — SRS §2.3 ICD-10 Semantic Validation
+# ════════════════════════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-llama
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: llama
+    app.kubernetes.io/component: llm-serving
+    app.kubernetes.io/name: hfcx-ai-claims
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+      tier: llama
+  template:
+    metadata:
+      labels:
+        app: ollama
+        tier: llama
+    spec:
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: gpu
+          effect: NoSchedule
+      nodeSelector:
+        workload: gpu
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [ollama]
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: pull-models
+          image: ollama/ollama:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Starting Ollama server for model pull..."
+              ollama serve &
+              sleep 5
+              echo "Pulling llama3.1:8b-instruct-q5_K_M (SRS §2.3 — ICD-10 coding)..."
+              ollama pull llama3.1:8b-instruct-q5_K_M || ollama pull llama3.1:8b || echo "WARN: llama pull failed"
+              echo "Model pull complete."
+              kill %1 2>/dev/null || true
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "3"
+              memory: "7Gi"
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+              protocol: TCP
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "2"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "2"
+              memory: "5Gi"
+            limits:
+              cpu: "3500m"
+              memory: "7Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-llama-models
+
+---
+# ════════════════════════════════════════════════════════════════════════════
+# §3  Qwen3 8B + nomic-embed-text — SRS §2.2 Arabic NLP + Embeddings
+# ════════════════════════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-qwen
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: qwen
+    app.kubernetes.io/component: llm-serving
+    app.kubernetes.io/name: hfcx-ai-claims
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+      tier: qwen
+  template:
+    metadata:
+      labels:
+        app: ollama
+        tier: qwen
+    spec:
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: gpu
+          effect: NoSchedule
+      nodeSelector:
+        workload: gpu
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [ollama]
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: pull-models
+          image: ollama/ollama:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Starting Ollama server for model pull..."
+              ollama serve &
+              sleep 5
+              echo "Pulling qwen3:8b (SRS §2.2 — Arabic-capable, BiMediX replacement)..."
+              ollama pull qwen3:8b || echo "WARN: qwen3 pull failed"
+              echo "Pulling nomic-embed-text (SRS §2.4 — embeddings for ChromaDB RAG)..."
+              ollama pull nomic-embed-text || echo "WARN: nomic pull failed"
+              echo "Model pull complete."
+              kill %1 2>/dev/null || true
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "3"
+              memory: "7Gi"
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+              name: http
+              protocol: TCP
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "2"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "2"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama/models
+          resources:
+            requests:
+              cpu: "2"
+              memory: "5Gi"
+            limits:
+              cpu: "3500m"
+              memory: "7Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-qwen-models
+
+---
+# ── Services ────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-medgemma
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: medgemma
+spec:
+  selector:
+    app: ollama
+    tier: medgemma
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-llama
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: llama
+spec:
+  selector:
+    app: ollama
+    tier: llama
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-qwen
+  namespace: hcx-ai
+  labels:
+    app: ollama
+    tier: qwen
+spec:
+  selector:
+    app: ollama
+    tier: qwen
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+# ── Unified Service (backward compat) ──────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: hcx-ai
+  labels:
+    app: ollama
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+# ── Backward-compat aliases for LiteLLM config ─────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-primary
+  namespace: hcx-ai
+  labels:
+    app: ollama
+spec:
+  selector:
+    app: ollama
+    tier: medgemma
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-secondary
+  namespace: hcx-ai
+  labels:
+    app: ollama
+spec:
+  selector:
+    app: ollama
+    tier: qwen
+  ports:
+    - port: 11434
+      targetPort: 11434
+      protocol: TCP
+      name: http
+  type: ClusterIP

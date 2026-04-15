@@ -43,6 +43,7 @@ from src.agents.eligibility import EligibilityAgent
 from src.agents.fraud_detection import FraudDetectionAgent
 from src.agents.medical_coding import MedicalCodingAgent
 from src.agents.medical_necessity import MedicalNecessityAgent
+from src.agents.multimodal import MultimodalDocumentAgent
 from src.config import get_settings
 from src.models.schemas import (
     AdjudicationDecision,
@@ -122,6 +123,11 @@ async def node_parallel_agents(state: dict[str, Any]) -> dict[str, Any]:
         agents_enabled.append("necessity")
         tasks.append(asyncio.create_task(_run_necessity(claim)))
 
+    # SRS §2.2: MedGemma 4B Multimodal document analysis
+    if settings.multimodal_enabled and claim.attachment_ids:
+        agents_enabled.append("multimodal")
+        tasks.append(asyncio.create_task(_run_multimodal(claim)))
+
     t0 = time.monotonic()
     results = await asyncio.gather(*tasks, return_exceptions=True)
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -154,6 +160,11 @@ async def _run_fraud(claim: FHIRClaimBundle) -> Any:
 async def _run_necessity(claim: FHIRClaimBundle) -> Any:
     agent = MedicalNecessityAgent()
     return await agent.assess(claim)
+
+
+async def _run_multimodal(claim: FHIRClaimBundle) -> Any:
+    agent = MultimodalDocumentAgent()
+    return await agent.analyze(claim)
 
 
 async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
@@ -268,6 +279,12 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
         "coding": settings.litellm_coding_model,
         "arabic": settings.litellm_arabic_model,
         "fast": settings.litellm_fast_model,
+        "multimodal": settings.multimodal_model if settings.multimodal_enabled else "disabled",
+        "xgboost": "xgb_fraud_v1" if settings.xgboost_enabled else "disabled",
+        "arabic_nlp": "arabert-v2 + camel-tools" if settings.enable_arabic_nlp else "disabled",
+        "healthcare_nlp": "medspacy + en_core_web_sm",
+        "fraud_ensemble": "pyod(iforest+lof+hbos) + networkx",
+        "embeddings": "nomic-embed-text",
         "app_version": settings.app_version,
     }
 

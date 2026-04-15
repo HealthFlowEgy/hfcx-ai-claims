@@ -2,12 +2,15 @@
 Medical Coding Validation Agent (SRS 4.3)
 
 Validates ICD-10 diagnosis codes and procedure codes against:
-  - Fine-tuned Llama 8B (ICD-10 validation, 97% exact match)
-  - Arabic-capable LLM (BiMediX/Qwen3) for clinical NER on Arabic notes
-  - NDP (National Drug Platform) — FR-MC-003 pharmacy prescription cross-reference
-  - HAPI FHIR terminology server — SRS §2.3 authoritative ICD-10 validation
+  - Fine-tuned Llama 8B (ICD-10 validation, 97% exact match) via LiteLLM -> Ollama
+  - Arabic-capable LLM (Qwen3 8B / BiMediX replacement) for clinical NER on Arabic notes
+  - AraBERT / CAMeL Tools for Arabic medical NER (SRS 2.2)
+  - spaCy / medspaCy for English clinical NER (Spark NLP replacement)
+  - NDP (National Drug Platform) -- FR-MC-003 pharmacy prescription cross-reference
+  - HAPI FHIR terminology server -- SRS 2.3 authoritative ICD-10 validation
 
-Tools: LiteLLM (MIT), NDP internal REST API, HAPI FHIR Server
+Tools: LiteLLM (MIT), NDP internal REST API, HAPI FHIR Server,
+       CAMeL Tools / AraBERT (MIT), spaCy / medspaCy (Apache 2.0)
 """
 from __future__ import annotations
 
@@ -24,7 +27,9 @@ from src.models.schemas import (
     CodingValidationResult,
     FHIRClaimBundle,
 )
+from src.services.arabic_nlp_service import ArabicMedicalNLPService
 from src.services.hapi_fhir_service import HAPIFHIRService
+from src.services.healthcare_nlp_service import HealthcareNLPService
 from src.services.llm_service import LLMService
 from src.services.ndp_service import NDPService
 from src.utils.metrics import AGENT_LATENCY
@@ -42,16 +47,20 @@ class MedicalCodingAgent:
 
     Validation pipeline:
     1. Structural ICD-10 format check (regex)
-    2. LLM semantic validation (fine-tuned Llama 8B via LiteLLM)
-    3. Arabic NER extraction from clinical notes (if available)
-    4. Cross-check: does extracted clinical text support the submitted codes?
-    5. NDP cross-reference for pharmacy claims (FR-MC-003)
+    2. AraBERT / CAMeL Tools Arabic NER extraction (SRS 2.2)
+    3. spaCy / medspaCy English clinical NER (Spark NLP replacement)
+    4. LLM semantic validation (fine-tuned Llama 8B via LiteLLM -> Ollama)
+    5. Cross-check: does extracted clinical text support the submitted codes?
+    6. HAPI FHIR terminology server authoritative check (SRS 2.3)
+    7. NDP cross-reference for pharmacy claims (FR-MC-003)
     """
 
     def __init__(self) -> None:
         self._llm = LLMService()
         self._ndp = NDPService()
         self._hapi = HAPIFHIRService()
+        self._arabic_nlp = ArabicMedicalNLPService()
+        self._healthcare_nlp = HealthcareNLPService()
 
     async def validate(self, claim: FHIRClaimBundle) -> CodingValidationResult:
         with AGENT_LATENCY.labels(agent="medical_coding").time():
@@ -77,15 +86,39 @@ class MedicalCodingAgent:
             )
 
         # 2. Arabic NER (if clinical notes present)
+        #    Uses AraBERT/CAMeL Tools (SRS 2.2) + LLM fallback via Qwen3
+        arabic_nlp_result: dict[str, Any] = {}
         if claim.clinical_notes and settings.enable_arabic_nlp:
-            arabic_entities = await self._extract_arabic_entities(claim.clinical_notes)
+            arabic_nlp_result = await self._arabic_nlp.extract_medical_entities(
+                claim.clinical_notes,
+                use_llm=True,
+                llm_service=self._llm,
+            )
+            arabic_entities = arabic_nlp_result.get("entities", [])
             log.debug(
                 "arabic_ner_complete",
                 entities_count=len(arabic_entities),
+                backend=arabic_nlp_result.get("backend", "unknown"),
                 claim_id=claim.claim_id,
             )
 
-        # 3. LLM semantic validation
+        # 2b. English clinical NER (Spark NLP replacement -- SRS 2.2)
+        #     Uses spaCy/medspaCy for clinical entity extraction + ICD-10 suggestion
+        healthcare_nlp_result: dict[str, Any] = {}
+        if claim.clinical_notes:
+            healthcare_nlp_result = await self._healthcare_nlp.extract_clinical_entities(
+                claim.clinical_notes
+            )
+            nlp_icd10 = healthcare_nlp_result.get("suggested_icd10", [])
+            if nlp_icd10:
+                log.debug(
+                    "healthcare_nlp_icd10_suggestions",
+                    count=len(nlp_icd10),
+                    backend=healthcare_nlp_result.get("backend", "unknown"),
+                    claim_id=claim.claim_id,
+                )
+
+        # 3. LLM semantic validation (Llama 8B via coding-model alias)
         if claim.diagnosis_codes or claim.procedure_codes:
             llm_result = await self._llm_validate_codes(
                 diagnosis_codes=claim.diagnosis_codes,
@@ -107,7 +140,7 @@ class MedicalCodingAgent:
             procedure_validations = llm_result.get("procedure_validations", [])
             suggested_corrections = llm_result.get("suggested_corrections", [])
 
-        # 3b. SRS §2.3 — HAPI FHIR terminology server authoritative check.
+        # 3b. SRS 2.3 -- HAPI FHIR terminology server authoritative check.
         # We upgrade semantic confidence when HAPI confirms, and flag codes
         # that the LLM thought valid but HAPI rejects as a correction.
         if claim.diagnosis_codes and settings.hapi_fhir_enabled:
@@ -121,7 +154,7 @@ class MedicalCodingAgent:
                 v["hapi_valid"] = hapi.get("valid")
                 if hapi.get("display"):
                     v["description"] = v.get("description") or hapi["display"]
-                # Disagreement → LLM said valid but HAPI rejected.
+                # Disagreement: LLM said valid but HAPI rejected.
                 if v.get("semantic_valid") is True and hapi.get("valid") is False:
                     v["semantic_valid"] = False
                     suggested_corrections.append(
@@ -166,7 +199,7 @@ class MedicalCodingAgent:
                 suggested_corrections.append(
                     {
                         "category": "pharmacy",
-                        "reason": "Drugs already dispensed — possible double-fill",
+                        "reason": "Drugs already dispensed -- possible double-fill",
                         "dispensed": dispensed,
                     }
                 )
@@ -190,16 +223,43 @@ class MedicalCodingAgent:
             confidence_score=avg_confidence,
             arabic_entities_extracted=arabic_entities,
             ndp_prescription_check=ndp_check,
+            arabic_nlp_backend=arabic_nlp_result.get("backend"),
+            healthcare_nlp_backend=healthcare_nlp_result.get("backend"),
+            healthcare_nlp_entities=healthcare_nlp_result.get("entities", []),
+            suggested_icd10_from_nlp=healthcare_nlp_result.get("suggested_icd10", []),
         )
 
-    async def _extract_arabic_entities(self, clinical_notes: str) -> list[str]:
+    async def _extract_arabic_entities(  # noqa: E501
+        self, clinical_notes: str,
+    ) -> list[str]:
+        ar_sys = (
+            "أنت نظام استخراج"
+            " كيانات طبية."
+            " استخرج الأمراض"
+            " والأدوية"
+            " والإجراءات"
+            " الطبية من النص"
+            " التالي.\n"
+        )
+        ar_fmt = (
+            '\u0623\u0631\u062c\u0639 JSON \u0641\u0642\u0637'
+            ' \u0645\u0639 \u0642\u0627\u0626\u0645\u0629'
+            ' "entities"'
+            " تحتوي على"
+            " الكيانات"
+            " المستخرجة"
+            " باللغة"
+            " العربية.\n\n"
+        )
+        ar_ex = (
+            '{"entities": ["\u0627\u0631\u062a\u0641\u0627\u0639'
+            ' \u0636\u063a\u0637 \u0627\u0644\u062f\u0645",'
+            ' "\u0627\u0644\u0623\u0633\u0628\u0631\u064a\u0646"]}'
+        )
         prompt = (
-            "أنت نظام استخراج كيانات طبية. استخرج الأمراض والأدوية والإجراءات "
-            "الطبية من النص التالي.\n"
-            'أرجع JSON فقط مع قائمة "entities" تحتوي على الكيانات المستخرجة '
-            "باللغة العربية.\n\n"
+            f"{ar_sys}{ar_fmt}"
             f"النص: {clinical_notes[:500]}\n\n"
-            'مثال على التنسيق: {"entities": ["ارتفاع ضغط الدم", "الأسبرين"]}'
+            f"{ar_ex}"
         )
 
         try:
