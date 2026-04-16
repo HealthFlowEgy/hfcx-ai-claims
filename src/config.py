@@ -65,11 +65,11 @@ class Settings(BaseSettings):
     # billing key).  Reads env var LITELLM_MASTER_KEY which is injected
     # from hfcx-ai-secrets via envFrom in backend.yaml.
     litellm_master_key: str = "sk-internal-hfcx"
-    litellm_coordinator_model: str = "gpt-4o"
-    litellm_coding_model: str = "gpt-4o"
-    litellm_arabic_model: str = "gpt-4o"
-    litellm_fast_model: str = "gpt-4o-mini"
-    litellm_timeout_seconds: int = 30
+    litellm_coordinator_model: str = "coordinator-model"
+    litellm_coding_model: str = "coding-model"
+    litellm_arabic_model: str = "arabic-model"
+    litellm_fast_model: str = "fast-model"
+    litellm_timeout_seconds: int = 300
     litellm_max_retries: int = 3
 
     # ── ChromaDB ─────────────────────────────────────────────────────────
