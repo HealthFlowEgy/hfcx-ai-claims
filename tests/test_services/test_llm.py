@@ -56,8 +56,9 @@ async def test_llm_get_model_status():
         return_value={
             "data": [
                 {"id": "coordinator-model"},
-                {"id": "gpt-4o"},
-                {"id": "gpt-4o-mini"},
+                {"id": "coding-model"},
+                {"id": "arabic-model"},
+                {"id": "fast-model"},
             ]
         }
     )
@@ -67,6 +68,6 @@ async def test_llm_get_model_status():
     svc = LLMService(client=client)
     status = await svc.get_model_status()
     assert status["coordinator"] is True
-    assert status["coding"] is True   # gpt-4o matches litellm_coding_model
-    assert status["arabic"] is True   # gpt-4o matches litellm_arabic_model
-    assert status["fast"] is True     # gpt-4o-mini matches litellm_fast_model
+    assert status["coding"] is True   # coding-model matches litellm_coding_model
+    assert status["arabic"] is True   # arabic-model matches litellm_arabic_model
+    assert status["fast"] is True     # fast-model matches litellm_fast_model
