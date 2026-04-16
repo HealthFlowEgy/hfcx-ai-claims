@@ -1,12 +1,18 @@
 """
 POST /internal/ai/coordinate — Submit FHIR Claim for AI orchestration
+POST /internal/ai/coordinate/async — Async submit (returns immediately)
+GET  /internal/ai/coordinate/status/{claim_id} — Poll for result
 """
 from __future__ import annotations
 
+import asyncio
 import time
+import uuid
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from src.agents.coordinator import get_coordinator
 from src.api.middleware import verify_service_jwt
@@ -24,15 +30,36 @@ router = APIRouter()
 # Parser is stateless — safe to share.
 _parser = FHIRClaimParser()
 
+# ── In-memory task tracker for async submissions ─────────────────────
+# Maps claim_id → {"status": "processing"|"completed"|"failed", "result": ..., "error": ...}
+_async_tasks: dict[str, dict[str, Any]] = {}
+
+
+class AsyncSubmitResponse(BaseModel):
+    """Returned immediately by the async coordinate endpoint."""
+    claim_id: str
+    status: str = "processing"
+    message: str = "Claim submitted for AI analysis. Poll /coordinate/status/{claim_id} for results."
+
+
+class ClaimStatusResponse(BaseModel):
+    """Returned by the status polling endpoint."""
+    claim_id: str
+    status: str  # "processing" | "completed" | "failed"
+    result: AICoordinateResponse | None = None
+    error: str | None = None
+
+
+# ── Synchronous endpoint (original) ─────────────────────────────────
 
 @router.post(
     "/coordinate",
     response_model=AICoordinateResponse,
-    summary="Submit FHIR Claim for AI Analysis",
+    summary="Submit FHIR Claim for AI Analysis (synchronous)",
     description=(
         "Accepts a FHIR R4 Claim bundle and runs multi-agent AI adjudication. "
         "Returns enriched claim with eligibility, coding, fraud, and necessity "
-        "assessments."
+        "assessments. WARNING: may take 3-5 minutes for self-hosted models."
     ),
 )
 async def coordinate_claim(
@@ -56,10 +83,6 @@ async def coordinate_claim(
     try:
         analysis = await coordinator.process_claim(claim)
     except Exception as exc:
-        # NFR-004 graceful degradation: surface as 503 with correlation ID
-        # rather than leaking a 500. The Kafka consumer path has its own
-        # bypass-on-failure branch; the REST path is operator-facing so
-        # a clear error is more useful.
         log.error("coordinator_rest_failed", error=str(exc), exc_info=True)
         raise HTTPException(
             status_code=503,
@@ -73,8 +96,6 @@ async def coordinate_claim(
         ) from exc
     processing_ms = int((time.monotonic() - t0) * 1000)
 
-    # Persist the analysis row so BFF dashboards see real data
-    # (P0 review finding). Non-blocking — logged + swallowed on error.
     await ClaimAnalysisWriter.persist(claim=claim, analysis=analysis)
 
     return AICoordinateResponse(
@@ -92,3 +113,157 @@ async def coordinate_claim(
         model_versions=analysis.model_versions,
         fhir_extensions=[],
     )
+
+
+# ── Async submission endpoint ────────────────────────────────────────
+
+async def _process_claim_background(claim_id: str, claim: FHIRClaimBundle) -> None:
+    """Background task that processes the claim and stores the result."""
+    coordinator = get_coordinator()
+    t0 = time.monotonic()
+    try:
+        analysis = await coordinator.process_claim(claim)
+        processing_ms = int((time.monotonic() - t0) * 1000)
+
+        await ClaimAnalysisWriter.persist(claim=claim, analysis=analysis)
+
+        _async_tasks[claim_id] = {
+            "status": "completed",
+            "result": AICoordinateResponse(
+                correlation_id=analysis.correlation_id,
+                claim_id=claim.claim_id,
+                adjudication_decision=analysis.adjudication_decision,
+                overall_confidence=analysis.overall_confidence or 0.0,
+                requires_human_review=analysis.requires_human_review,
+                human_review_reasons=analysis.human_review_reasons,
+                eligibility=analysis.eligibility,
+                coding=analysis.coding,
+                fraud=analysis.fraud,
+                necessity=analysis.necessity,
+                processing_time_ms=processing_ms,
+                model_versions=analysis.model_versions,
+                fhir_extensions=[],
+            ),
+        }
+        log.info("async_claim_completed", claim_id=claim_id, processing_ms=processing_ms)
+    except Exception as exc:
+        log.error("async_claim_failed", claim_id=claim_id, error=str(exc), exc_info=True)
+        _async_tasks[claim_id] = {
+            "status": "failed",
+            "error": str(exc),
+        }
+
+
+@router.post(
+    "/coordinate/async",
+    response_model=AsyncSubmitResponse,
+    summary="Submit FHIR Claim for AI Analysis (async)",
+    description=(
+        "Accepts a FHIR R4 Claim bundle and immediately returns a claim ID. "
+        "The AI analysis runs in the background. Poll /coordinate/status/{claim_id} "
+        "for results."
+    ),
+)
+async def coordinate_claim_async(
+    request: AICoordinateRequest,
+    _: str = Depends(verify_service_jwt),
+) -> AsyncSubmitResponse:
+    try:
+        claim: FHIRClaimBundle = _parser.parse(
+            raw_bundle=request.fhir_claim_bundle,
+            hcx_headers=request.hcx_headers,
+        )
+    except Exception as exc:
+        log.error("fhir_parse_error", error=str(exc))
+        raise HTTPException(
+            status_code=422, detail=f"FHIR bundle parse error: {exc}"
+        ) from exc
+
+    claim_id = claim.claim_id or f"CLAIM-{uuid.uuid4().hex[:12]}"
+
+    # Register the task as processing
+    _async_tasks[claim_id] = {"status": "processing"}
+
+    # Fire-and-forget the background processing
+    asyncio.create_task(_process_claim_background(claim_id, claim))
+
+    log.info("async_claim_submitted", claim_id=claim_id)
+    return AsyncSubmitResponse(
+        claim_id=claim_id,
+        status="processing",
+        message=f"Claim {claim_id} submitted for AI analysis. Poll /coordinate/status/{claim_id} for results.",
+    )
+
+
+@router.get(
+    "/coordinate/status/{claim_id}",
+    response_model=ClaimStatusResponse,
+    summary="Poll claim processing status",
+    description="Returns the current status and result of an async claim submission.",
+)
+async def coordinate_claim_status(
+    claim_id: str,
+    _: str = Depends(verify_service_jwt),
+) -> ClaimStatusResponse:
+    task = _async_tasks.get(claim_id)
+
+    if task is None:
+        # Not in memory — check the database (may have been processed by another pod)
+        try:
+            from src.models.orm import AIClaimAnalysis, create_engine_and_session
+            from sqlalchemy import select
+
+            _, session_factory = create_engine_and_session()
+            async with session_factory() as session:
+                stmt = select(AIClaimAnalysis).where(
+                    AIClaimAnalysis.claim_id == claim_id
+                ).order_by(AIClaimAnalysis.created_at.desc()).limit(1)
+                row = (await session.execute(stmt)).scalar_one_or_none()
+
+                if row and row.completed_at:
+                    return ClaimStatusResponse(
+                        claim_id=claim_id,
+                        status="completed",
+                        result=AICoordinateResponse(
+                            correlation_id=row.correlation_id or "",
+                            claim_id=row.claim_id,
+                            adjudication_decision=row.adjudication_decision or "pended",
+                            overall_confidence=row.overall_confidence or 0.0,
+                            requires_human_review=row.requires_human_review or True,
+                            human_review_reasons=row.human_review_reasons or [],
+                            eligibility=row.eligibility_result,
+                            coding=row.coding_result,
+                            fraud=row.fraud_result,
+                            necessity=row.necessity_result,
+                            processing_time_ms=row.processing_time_ms or 0,
+                            model_versions=row.model_versions or {},
+                            fhir_extensions=[],
+                        ),
+                    )
+                elif row:
+                    return ClaimStatusResponse(
+                        claim_id=claim_id,
+                        status="processing",
+                    )
+        except Exception as exc:
+            log.warning("status_db_check_failed", claim_id=claim_id, error=str(exc))
+
+        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")
+
+    if task["status"] == "completed":
+        return ClaimStatusResponse(
+            claim_id=claim_id,
+            status="completed",
+            result=task["result"],
+        )
+    elif task["status"] == "failed":
+        return ClaimStatusResponse(
+            claim_id=claim_id,
+            status="failed",
+            error=task.get("error", "Unknown error"),
+        )
+    else:
+        return ClaimStatusResponse(
+            claim_id=claim_id,
+            status="processing",
+        )

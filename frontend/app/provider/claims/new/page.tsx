@@ -79,6 +79,7 @@ export default function NewClaimPage() {
   const locale = useLocale();
 
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
+  const [progressMsg, setProgressMsg] = useState<string>('');
 
   const form = useForm<ClaimFormValues>({
     resolver: zodResolver(claimSchema),
@@ -187,10 +188,13 @@ export default function NewClaimPage() {
         'X-HCX-Correlation-ID': claim_id,
         'X-HCX-Workflow-ID': 'provider-portal',
         'X-HCX-API-Call-ID': claim_id,
+      }, {
+        onProgress: (msg: string) => setProgressMsg(msg),
       });
     },
     onSuccess: (res) => {
       setAiResult(res);
+      setProgressMsg('');
       toast({
         title: 'Claim Submitted Successfully',
         description: `Claim ${res.claim_id} — Decision: ${res.adjudication_decision}`,
@@ -198,6 +202,7 @@ export default function NewClaimPage() {
       });
     },
     onError: (error) => {
+      setProgressMsg('');
       toast({
         title: 'Submission Failed',
         description: error instanceof Error ? error.message : 'An error occurred while processing the claim.',
@@ -512,7 +517,7 @@ export default function NewClaimPage() {
               {submit.isPending ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Processing AI Analysis...
+                  {progressMsg || 'Processing AI Analysis...'}
                 </>
               ) : (
                 <>
@@ -521,6 +526,11 @@ export default function NewClaimPage() {
                 </>
               )}
             </Button>
+            {submit.isPending && progressMsg && (
+              <p className="mt-2 text-center text-sm text-hcx-text-muted">
+                AI analysis is running on self-hosted models. This typically takes 2–4 minutes.
+              </p>
+            )}
           </CardContent>
         </Card>
       </form>

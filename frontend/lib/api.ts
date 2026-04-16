@@ -97,39 +97,98 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeCoordinateResponse(raw: any): AICoordinateResponse {
+  return {
+    correlation_id: raw.correlation_id ?? '',
+    claim_id: raw.claim_id ?? '',
+    adjudication_decision: raw.adjudication_decision ?? 'pended',
+    overall_confidence: raw.overall_confidence ?? 0,
+    requires_human_review: raw.requires_human_review ?? true,
+    human_review_reasons: raw.human_review_reasons ?? [],
+    eligibility: raw.eligibility ?? null,
+    coding: raw.coding ?? null,
+    fraud: raw.fraud_detection ?? raw.fraud ?? null,
+    necessity: raw.medical_necessity ?? raw.necessity ?? null,
+    processing_time_ms: raw.processing_time_ms ?? 0,
+    model_versions: raw.model_versions ?? {},
+    fhir_extensions: raw.fhir_extensions ?? [],
+  };
+}
+
 // ── Coordinator ──────────────────────────────────────────────────────
 export const api = {
+  /**
+   * Submit a claim for AI analysis using the async endpoint.
+   * Returns immediately with a claim_id, then polls for the result.
+   * Falls back to the synchronous endpoint if async is unavailable.
+   */
   async coordinateClaim(
     fhirClaimBundle: unknown,
     hcxHeaders: Record<string, string>,
-    opts: FetchOptions = {},
+    opts: FetchOptions & { onProgress?: (status: string) => void } = {},
   ): Promise<AICoordinateResponse> {
+    const { onProgress, ...fetchOpts } = opts;
+
+    // Step 1: Submit asynchronously
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw: any = await request('/internal/ai/coordinate', {
-      method: 'POST',
-      body: JSON.stringify({
-        fhir_claim_bundle: fhirClaimBundle,
-        hcx_headers: hcxHeaders,
-      }),
-      ...opts,
-    });
-    // Normalize backend field names to frontend types:
-    // fraud_detection → fraud, medical_necessity → necessity
-    return {
-      correlation_id: raw.correlation_id ?? '',
-      claim_id: raw.claim_id ?? '',
-      adjudication_decision: raw.adjudication_decision ?? 'pended',
-      overall_confidence: raw.overall_confidence ?? 0,
-      requires_human_review: raw.requires_human_review ?? true,
-      human_review_reasons: raw.human_review_reasons ?? [],
-      eligibility: raw.eligibility ?? null,
-      coding: raw.coding ?? null,
-      fraud: raw.fraud_detection ?? raw.fraud ?? null,
-      necessity: raw.medical_necessity ?? raw.necessity ?? null,
-      processing_time_ms: raw.processing_time_ms ?? 0,
-      model_versions: raw.model_versions ?? {},
-      fhir_extensions: raw.fhir_extensions ?? [],
-    };
+    let submitResult: any;
+    try {
+      submitResult = await request('/internal/ai/coordinate/async', {
+        method: 'POST',
+        body: JSON.stringify({
+          fhir_claim_bundle: fhirClaimBundle,
+          hcx_headers: hcxHeaders,
+        }),
+        ...fetchOpts,
+      });
+    } catch {
+      // Fallback to synchronous endpoint if async is not available
+      const raw: any = await request('/internal/ai/coordinate', {
+        method: 'POST',
+        body: JSON.stringify({
+          fhir_claim_bundle: fhirClaimBundle,
+          hcx_headers: hcxHeaders,
+        }),
+        ...fetchOpts,
+      });
+      return normalizeCoordinateResponse(raw);
+    }
+
+    const claimId = submitResult.claim_id;
+    if (!claimId) {
+      throw new ApiError(0, 'ERR-NO-CLAIM-ID', 'No claim_id returned from async submit', '');
+    }
+
+    // Step 2: Poll for result every 5 seconds, up to 6 minutes
+    const maxPolls = 72; // 72 * 5s = 360s = 6 minutes
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      onProgress?.(`Processing AI analysis... (${(i + 1) * 5}s)`);
+
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const status: any = await request(`/internal/ai/coordinate/status/${claimId}`, {
+          ...fetchOpts,
+        });
+
+        if (status.status === 'completed' && status.result) {
+          return normalizeCoordinateResponse(status.result);
+        }
+        if (status.status === 'failed') {
+          throw new ApiError(503, 'ERR-AI-FAILED', status.error || 'AI processing failed', claimId);
+        }
+        // status === 'processing' → continue polling
+      } catch (err) {
+        // If it's a 404, the claim hasn't been registered yet — keep polling
+        if (err instanceof ApiError && err.status === 404) continue;
+        throw err;
+      }
+    }
+
+    throw new ApiError(0, 'ERR-TIMEOUT', 'AI analysis timed out after 6 minutes', claimId);
   },
 
   // ── Direct agent endpoints ──────────────────────────────────────────
