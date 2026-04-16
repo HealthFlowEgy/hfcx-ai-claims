@@ -1,6 +1,9 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
+// Allow up to 5 minutes for AI inference (self-hosted Ollama models)
+export const maxDuration = 300;
+
 /**
  * BFF Proxy — forwards frontend API requests to the backend with the
  * HttpOnly session token injected as a Bearer token.
@@ -125,7 +128,13 @@ async function proxyRequest(
       fetchOpts.body = await req.text();
     }
 
+    // 5-minute timeout for AI inference calls
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300_000);
+    fetchOpts.signal = controller.signal;
+
     const response = await fetch(url.toString(), fetchOpts);
+    clearTimeout(timeoutId);
     const responseBody = await response.text();
 
     const proxyResponse = new NextResponse(responseBody, {

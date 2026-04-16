@@ -65,7 +65,11 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   const url = `${DEFAULT_API_BASE}${path}`;
   let response: Response;
   try {
-    response = await fetch(url, { ...opts, headers });
+    // 5-minute timeout for AI inference calls (self-hosted Ollama models)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300_000);
+    response = await fetch(url, { ...opts, headers, signal: controller.signal });
+    clearTimeout(timeoutId);
   } catch (exc) {
     throw new ApiError(0, 'ERR-NET', (exc as Error).message, correlationId);
   }
