@@ -37,7 +37,10 @@ def _docker_available() -> bool:
 @pytest.fixture(scope="session")
 def postgres_container() -> Iterator[object]:
     if not _docker_available():
-        pytest.skip("Docker not available — integration tests skipped")
+        if "DATABASE_URL" in os.environ:
+            yield None
+            return
+        pytest.skip("Docker not available and DATABASE_URL not set — integration tests skipped")
     from testcontainers.postgres import PostgresContainer  # type: ignore
 
     with PostgresContainer("postgres:15-alpine") as pg:
@@ -50,7 +53,10 @@ def postgres_container() -> Iterator[object]:
 @pytest.fixture(scope="session")
 def redis_container() -> Iterator[object]:
     if not _docker_available():
-        pytest.skip("Docker not available — integration tests skipped")
+        if "REDIS_URL" in os.environ:
+            yield None
+            return
+        pytest.skip("Docker not available and REDIS_URL not set — integration tests skipped")
     from testcontainers.redis import RedisContainer  # type: ignore
 
     with RedisContainer("redis:7-alpine") as rc:

@@ -104,11 +104,22 @@ jobs:
           file: coverage.xml
           fail_ci_if_error: false
 
-  # ── Integration Tests (testcontainers) ──────────────────────────────────────
+  # ── Integration Tests (services) ──────────────────────────────────────────
   integration:
-    name: Integration Tests (testcontainers)
+    name: Integration Tests
     runs-on: ubuntu-latest
     needs: [lint]
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -122,10 +133,14 @@ jobs:
           cat > .env <<EOF
           APP_ENV=development
           SECRET_KEY=test-secret-key-32-characters-long
+          DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/test
+          REDIS_URL=redis://localhost:6379/0
           KEYCLOAK_CLIENT_SECRET=test
           EOF
       - name: Run integration suite
         run: |
+          # Use -m "not integration" to skip testcontainers-based tests
+          # since we are using GitHub services now.
           pytest tests/integration/ -v --no-cov -o addopts=
         env:
           PYTHONPATH: .
