@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncGenerator
 
 import structlog
@@ -35,31 +36,35 @@ async def _claim_event_generator() -> AsyncGenerator[str, None]:
         await pubsub.subscribe(CLAIM_UPDATES_CHANNEL)
         log.info("sse_subscribed", channel=CLAIM_UPDATES_CHANNEL)
 
+        # Send an initial comment so the client knows the stream is open
+        yield ": connected\n\n"
+
+        last_heartbeat = time.monotonic()
+
         while True:
-            try:
-                message = await asyncio.wait_for(
-                    pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=1.0
-                    ),
-                    timeout=HEARTBEAT_INTERVAL_SECONDS,
-                )
-            except TimeoutError:
-                # No message within heartbeat window — send keep-alive.
-                yield ": heartbeat\n\n"
-                continue
+            # Poll Redis with a short timeout (non-blocking)
+            message = await pubsub.get_message(
+                ignore_subscribe_messages=True,
+                timeout=1.0,
+            )
 
             if message is not None and message["type"] == "message":
                 data = message["data"]
-                # Ensure the payload is valid JSON text.
                 if isinstance(data, bytes):
                     data = data.decode("utf-8")
                 try:
-                    # Validate that data is parseable JSON.
                     json.loads(data)
                 except (json.JSONDecodeError, TypeError):
                     data = json.dumps({"raw": data})
-
                 yield f"data: {data}\n\n"
+                last_heartbeat = time.monotonic()
+            else:
+                elapsed = time.monotonic() - last_heartbeat
+                if elapsed >= HEARTBEAT_INTERVAL_SECONDS:
+                    yield ": heartbeat\n\n"
+                    last_heartbeat = time.monotonic()
+                else:
+                    await asyncio.sleep(0.5)
     except asyncio.CancelledError:
         log.info("sse_client_disconnected", channel=CLAIM_UPDATES_CHANNEL)
     finally:
