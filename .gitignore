@@ -40,3 +40,4 @@ logs/
 # Model weights (large files)
 models/*.bin
 models/*.gguf
+kubectl
