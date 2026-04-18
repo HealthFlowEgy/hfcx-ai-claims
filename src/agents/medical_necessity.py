@@ -162,7 +162,7 @@ class MedicalNecessityAgent:
             return collection.query(
                 query_texts=query_texts,
                 n_results=5,
-                include=["documents", "metadatas", "distances"],
+                include=["documents", "metadatas", "distances"],  # type: ignore
             )
 
         try:

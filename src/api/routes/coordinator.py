@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from src.agents.coordinator import get_coordinator
 from src.api.middleware import verify_service_jwt
 from src.models.schemas import (
+    AdjudicationDecision,
     AICoordinateRequest,
     AICoordinateResponse,
     FHIRClaimBundle,
@@ -228,7 +229,7 @@ async def coordinate_claim_status(
                         result=AICoordinateResponse(
                             correlation_id=row.correlation_id or "",
                             claim_id=row.claim_id,
-                            adjudication_decision=row.adjudication_decision or "pended",
+                            adjudication_decision=AdjudicationDecision(row.adjudication_decision) if row.adjudication_decision else AdjudicationDecision.PENDED,
                             overall_confidence=row.overall_confidence or 0.0,
                             requires_human_review=row.requires_human_review or True,
                             human_review_reasons=row.human_review_reasons or [],

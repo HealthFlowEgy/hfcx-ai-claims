@@ -35,7 +35,7 @@ try:
 except ImportError:  # pragma: no cover — production deploys always have it
     _LANGGRAPH_AVAILABLE = False
     AsyncRedisSaver = None
-    StateGraph = None
+    StateGraph = None  # type: ignore
     START = "__start__"
     END = "__end__"
 
@@ -334,9 +334,9 @@ async def build_coordinator_graph(
 
     graph: StateGraph = StateGraph(dict)
 
-    graph.add_node("eligibility", node_eligibility)
-    graph.add_node("parallel", node_parallel_agents)
-    graph.add_node("adjudicate", node_adjudicate)
+    graph.add_node("eligibility", node_eligibility)  # type: ignore
+    graph.add_node("parallel", node_parallel_agents)  # type: ignore
+    graph.add_node("adjudicate", node_adjudicate)  # type: ignore
 
     graph.add_edge(START, "eligibility")
     graph.add_conditional_edges(
