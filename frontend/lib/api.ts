@@ -177,10 +177,10 @@ export const api = {
         });
 
         if (status.status === 'completed' && status.result) {
-          return normalizeCoordinateResponse(status.result);
+          return normalizeCoordinateResponse(status.result as Record<string, unknown>);
         }
         if (status.status === 'failed') {
-          throw new ApiError(503, 'ERR-AI-FAILED', status.error || 'AI processing failed', claimId);
+          throw new ApiError(503, 'ERR-AI-FAILED', (status.error as string) || 'AI processing failed', claimId);
         }
         // status === 'processing' → continue polling
       } catch (err) {
