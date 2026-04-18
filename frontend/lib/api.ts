@@ -100,19 +100,19 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
 //// ── Helpers ─────────────────────────────────────────────────────
 function normalizeCoordinateResponse(raw: Record<string, unknown>): AICoordinateResponse {
   return {
-    correlation_id: raw.correlation_id ?? '',
-    claim_id: raw.claim_id ?? '',
-    adjudication_decision: raw.adjudication_decision ?? 'pended',
-    overall_confidence: raw.overall_confidence ?? 0,
-    requires_human_review: raw.requires_human_review ?? true,
-    human_review_reasons: raw.human_review_reasons ?? [],
-    eligibility: raw.eligibility ?? null,
-    coding: raw.coding ?? null,
-    fraud: raw.fraud_detection ?? raw.fraud ?? null,
-    necessity: raw.medical_necessity ?? raw.necessity ?? null,
-    processing_time_ms: raw.processing_time_ms ?? 0,
-    model_versions: raw.model_versions ?? {},
-    fhir_extensions: raw.fhir_extensions ?? [],
+    correlation_id: (raw.correlation_id as string) ?? '',
+    claim_id: (raw.claim_id as string) ?? '',
+    adjudication_decision: (raw.adjudication_decision as AdjudicationDecision) ?? 'pended',
+    overall_confidence: (raw.overall_confidence as number) ?? 0,
+    requires_human_review: (raw.requires_human_review as boolean) ?? true,
+    human_review_reasons: (raw.human_review_reasons as string[]) ?? [],
+    eligibility: (raw.eligibility as EligibilityResult | undefined) ?? null,
+    coding: (raw.coding as CodingValidationResult | undefined) ?? null,
+    fraud: (raw.fraud_detection ?? raw.fraud) as FraudDetectionResult | undefined ?? null,
+    necessity: (raw.medical_necessity ?? raw.necessity) as MedicalNecessityResult | undefined ?? null,
+    processing_time_ms: (raw.processing_time_ms as number) ?? 0,
+    model_versions: (raw.model_versions as Record<string, string>) ?? {},
+    fhir_extensions: (raw.fhir_extensions as Array<Record<string, unknown>>) ?? [],
   };
 }
 
@@ -151,10 +151,10 @@ export const api = {
         }),
         ...fetchOpts,
       });
-      return normalizeCoordinateResponse(raw as AICoordinateResponse);
+      return normalizeCoordinateResponse(raw);
     }
 
-    const claimId = submitResult.claim_id;
+    const claimId = submitResult.claim_id as string;
     if (!claimId) {
       throw new ApiError(0, 'ERR-NO-CLAIM-ID', 'No claim_id returned from async submit', '');
     }
