@@ -1,37 +1,37 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# LiteLLM Proxy Configuration (SRS Section 2.1, NFR-005)
+# LiteLLM Proxy Configuration — Self-Hosted Models Only (SRS Section 2.1-2.2)
 #
-# Run with: litellm --config config/litellm_config.yaml
-# Or via Docker: docker run -p 4000:4000 -v $(pwd)/config:/config \
-#                ghcr.io/berriai/litellm --config /config/litellm_config.yaml
+# All inference is routed to locally hosted Ollama models running on dedicated
+# nodes in the DigitalOcean Kubernetes cluster. No external API calls.
 #
-# Blue-green model updates: change the weights on the `coordinator-model`
-# alias entries to shift traffic between model versions. Agents always call
-# `coordinator-model` (see src/services/llm_service.py:COORDINATOR_MODEL_ALIAS)
-# so no agent restart is required.
+# Current node constraint: 8GB RAM (~5.3GB available after OS/K8s overhead)
+# Model routing (memory-optimized):
+#   coordinator-model → MedGemma 4B  (2.5GB — fits 8GB node)
+#   coding-model      → Llama 3.1 8B q4_K_M (4.9GB — fits 8GB node)
+#   arabic-model      → MedGemma 4B  (2.5GB — Arabic medical NLP)
+#   fast-model        → Qwen 2.5 7B  (4.7GB — fits 8GB node)
+#   embedding-model   → nomic-embed-text (274MB)
 #
-# Model routing strategy:
-#   - Production: OpenAI models via API (reliable, no GPU infra needed)
-#   - Future: Uncomment Ollama entries below to add local model backends
-#     and use weighted routing for gradual migration.
+# UPGRADE PATH: When 16GB+ nodes are available, switch coordinator-model
+# and arabic-model to MedGemma 27B, coding-model to q5_K_M, and
+# fast-model to Qwen 3 8B for improved accuracy.
 # ─────────────────────────────────────────────────────────────────────────────
 
 general_settings:
-  # Fix NEW-3: master_key from env var so rotating the GitHub secret
-  # actually rotates the accepted key.
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: null
   disable_spend_logs: true
-  request_timeout: 60
+  request_timeout: 300
 
 litellm_settings:
-  request_timeout: 60
+  request_timeout: 300
   retry_policy:
     ContentPolicyViolationError:
       num_retries: 0
     RateLimitError:
       num_retries: 3
-  telemetry: false   # Disable external telemetry (NFR-003 data sovereignty)
+  telemetry: false
+  drop_params: true
 
 router_settings:
   routing_strategy: least-busy
@@ -39,92 +39,112 @@ router_settings:
   cooldown_time: 10
 
 model_list:
-  # ── OpenAI models (production) ────────────────────────────────────────────
-  # OPENAI_API_KEY is injected as an env var from hfcx-ai-secrets.LITELLM_API_KEY
-  # LiteLLM automatically picks it up for openai/* models.
 
-  - model_name: gpt-4o
-    litellm_params:
-      model: openai/gpt-4o
-      timeout: 60
-      max_tokens: 4096
-
-  - model_name: gpt-4o-mini
-    litellm_params:
-      model: openai/gpt-4o-mini
-      timeout: 30
-      max_tokens: 4096
-
-  - model_name: gpt-4-turbo
-    litellm_params:
-      model: openai/gpt-4-turbo
-      timeout: 60
-      max_tokens: 4096
-
-  - model_name: gpt-3.5-turbo
-    litellm_params:
-      model: openai/gpt-3.5-turbo
-      timeout: 20
-      max_tokens: 4096
-
-  - model_name: text-embedding-3-small
-    litellm_params:
-      model: openai/text-embedding-3-small
-      timeout: 10
-
-  - model_name: text-embedding-3-large
-    litellm_params:
-      model: openai/text-embedding-3-large
-      timeout: 10
-
-  # ── Blue-green alias (NFR-005): agents call `coordinator-model` ───────────
-  # All entries with model_name=coordinator-model form a weighted pool.
-  # Shift traffic by editing weights — LiteLLM hot-reloads this file.
+  # ── MedGemma 4B — Primary Claim Reasoning (SRS §2.2) ─────────────────────
+  # Used by: Medical Necessity Agent, Coordinator Agent
+  # Running on: ollama-medgemma pod | Memory: 2.5GB
+  # NOTE: Upgrade to MedGemma 27B when 16GB nodes are available
   - model_name: coordinator-model
     litellm_params:
-      model: openai/gpt-4o
-      timeout: 60
+      model: ollama/alibayram/medgemma:4b
+      api_base: http://ollama-medgemma.hcx-ai.svc.cluster.local:11434
+      timeout: 300
       max_tokens: 4096
-      weight: 100
+      stream: false
 
-  # ── Coding agent model ────────────────────────────────────────────────────
-  - model_name: coding-model
-    litellm_params:
-      model: openai/gpt-4o
-      timeout: 60
-      max_tokens: 4096
-
-  # ── Arabic NLP model ──────────────────────────────────────────────────────
+  # ── MedGemma 4B — Arabic Medical NLP (SRS §2.2) ──────────────────────────
+  # Used by: Medical Coding Agent (Arabic text), Medical Necessity Agent
+  # Same model, same pod — MedGemma supports Arabic natively
   - model_name: arabic-model
     litellm_params:
-      model: openai/gpt-4o
-      timeout: 60
+      model: ollama/alibayram/medgemma:4b
+      api_base: http://ollama-medgemma.hcx-ai.svc.cluster.local:11434
+      timeout: 300
       max_tokens: 4096
+      stream: false
 
-  # ── Fast model (for eligibility, quick checks) ────────────────────────────
+  # ── Llama 3.1 8B q4_K_M — ICD-10 Code Validation (SRS §2.2) ─────────────
+  # Used by: Medical Coding Agent
+  # Running on: ollama-llama pod | Memory: 4.9GB
+  - model_name: coding-model
+    litellm_params:
+      model: ollama/llama3.1:8b-instruct-q4_K_M
+      api_base: http://ollama-llama.hcx-ai.svc.cluster.local:11434
+      timeout: 120
+      max_tokens: 4096
+      stream: false
+
+  # ── Qwen 2.5 7B — Fast Edge Model (SRS §2.2) ────────────────────────────
+  # Used by: Eligibility Agent, quick validation checks
+  # Running on: ollama-qwen pod | Memory: 4.7GB
   - model_name: fast-model
     litellm_params:
-      model: openai/gpt-4o-mini
-      timeout: 30
+      model: ollama/qwen2.5:7b
+      api_base: http://ollama-qwen.hcx-ai.svc.cluster.local:11434
+      timeout: 60
       max_tokens: 4096
+      stream: false
 
-  # ── Local Ollama models (future — uncomment when GPU nodes are available) ─
-  # - model_name: ollama/medgemma:27b
-  #   litellm_params:
-  #     model: ollama/medgemma:27b
-  #     api_base: http://ollama.hcx-ai.svc.cluster.local:11434
-  #     timeout: 60
-  #     max_tokens: 2000
-  #
-  # - model_name: ollama/llama3:8b-instruct
-  #   litellm_params:
-  #     model: ollama/llama3:8b-instruct
-  #     api_base: http://ollama.hcx-ai.svc.cluster.local:11434
-  #     timeout: 30
-  #     max_tokens: 1000
-  #
-  # - model_name: ollama/nomic-embed-text
-  #   litellm_params:
-  #     model: ollama/nomic-embed-text
-  #     api_base: http://ollama.hcx-ai.svc.cluster.local:11434
-  #     timeout: 10
+  # ── Nomic Embed Text — RAG Embeddings (SRS §2.3) ─────────────────────────
+  # Used by: ChromaDB vector store for medical necessity knowledge base
+  # Running on: ollama-qwen pod alongside Qwen | Memory: 274MB
+  - model_name: embedding-model
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama-qwen.hcx-ai.svc.cluster.local:11434
+      timeout: 30
+
+  # ── Direct model names (backward compatibility) ───────────────────────────
+  - model_name: ollama/alibayram/medgemma:27b
+    litellm_params:
+      model: ollama/alibayram/medgemma:27b
+      api_base: http://ollama-medgemma.hcx-ai.svc.cluster.local:11434
+      timeout: 300
+      max_tokens: 4096
+      stream: false
+
+  - model_name: ollama/alibayram/medgemma:4b
+    litellm_params:
+      model: ollama/alibayram/medgemma:4b
+      api_base: http://ollama-medgemma.hcx-ai.svc.cluster.local:11434
+      timeout: 120
+      max_tokens: 4096
+      stream: false
+
+  - model_name: ollama/llama3.1:8b-instruct-q5_K_M
+    litellm_params:
+      model: ollama/llama3.1:8b-instruct-q5_K_M
+      api_base: http://ollama-llama.hcx-ai.svc.cluster.local:11434
+      timeout: 120
+      max_tokens: 4096
+      stream: false
+
+  - model_name: ollama/llama3.1:8b-instruct-q4_K_M
+    litellm_params:
+      model: ollama/llama3.1:8b-instruct-q4_K_M
+      api_base: http://ollama-llama.hcx-ai.svc.cluster.local:11434
+      timeout: 120
+      max_tokens: 4096
+      stream: false
+
+  - model_name: ollama/qwen3:8b
+    litellm_params:
+      model: ollama/qwen3:8b
+      api_base: http://ollama-qwen.hcx-ai.svc.cluster.local:11434
+      timeout: 60
+      max_tokens: 4096
+      stream: false
+
+  - model_name: ollama/qwen2.5:7b
+    litellm_params:
+      model: ollama/qwen2.5:7b
+      api_base: http://ollama-qwen.hcx-ai.svc.cluster.local:11434
+      timeout: 60
+      max_tokens: 4096
+      stream: false
+
+  - model_name: ollama/nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama-qwen.hcx-ai.svc.cluster.local:11434
+      timeout: 30
