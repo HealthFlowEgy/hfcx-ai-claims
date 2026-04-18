@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -10,7 +11,7 @@ import {
   useWatch,
 } from 'react-hook-form';
 import { useLocale, useTranslations } from 'next-intl';
-import { AlertCircle, Loader2, Plus, Send, Trash2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Plus, Send, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -78,8 +79,10 @@ export default function NewClaimPage() {
   const tClaim = useTranslations('claim');
   const locale = useLocale();
 
+  const router = useRouter();
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
   const [progressMsg, setProgressMsg] = useState<string>('');
+  const [submittedClaimId, setSubmittedClaimId] = useState<string | null>(null);
 
   const form = useForm<ClaimFormValues>({
     resolver: zodResolver(claimSchema),
@@ -182,34 +185,69 @@ export default function NewClaimPage() {
           },
         ],
       };
-      return api.coordinateClaim(bundle, {
+      // Fire-and-forget: submit async, return immediately
+      return api.submitClaimAsync(bundle, {
         'X-HCX-Sender-Code': values.provider_id,
         'X-HCX-Recipient-Code': values.payer_id,
         'X-HCX-Correlation-ID': claim_id,
         'X-HCX-Workflow-ID': 'provider-portal',
         'X-HCX-API-Call-ID': claim_id,
-      }, {
-        onProgress: (msg: string) => setProgressMsg(msg),
       });
     },
     onSuccess: (res) => {
-      setAiResult(res);
+      setSubmittedClaimId(res.claim_id);
       setProgressMsg('');
       toast({
-        title: 'Claim Submitted Successfully',
-        description: `Claim ${res.claim_id} — Decision: ${res.adjudication_decision}`,
+        title: 'Claim Submitted',
+        description: (
+          `Claim ${res.claim_id} accepted. `
+          + 'AI analysis is running in the background.'
+        ),
         variant: 'success',
       });
+      // Redirect to claims list after a brief delay
+      setTimeout(() => router.push('/provider/claims'), 2000);
     },
     onError: (error) => {
       setProgressMsg('');
       toast({
         title: 'Submission Failed',
-        description: error instanceof Error ? error.message : 'An error occurred while processing the claim.',
+        description: (
+          error instanceof Error
+            ? error.message
+            : 'An error occurred while submitting the claim.'
+        ),
         variant: 'destructive',
       });
     },
   });
+
+  // Show instant confirmation after fire-and-forget submission
+  if (submittedClaimId && !aiResult) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
+        </header>
+        <Alert variant="success">
+          <CheckCircle2 className="h-5 w-5" />
+          <AlertTitle>Claim Submitted Successfully</AlertTitle>
+          <AlertDescription>
+            Claim <strong>{submittedClaimId}</strong> has been accepted.
+            AI analysis is running in the background.
+            <br />
+            You will be redirected to the claims list shortly.
+            The Payer Portal will be updated automatically once
+            the analysis is complete.
+          </AlertDescription>
+        </Alert>
+        <div className="flex items-center gap-2 text-sm text-hcx-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Redirecting to claims list...
+        </div>
+      </div>
+    );
+  }
 
   // If we have AI results, show them prominently
   if (aiResult) {

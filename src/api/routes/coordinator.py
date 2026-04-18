@@ -6,6 +6,7 @@ GET  /internal/ai/coordinate/status/{claim_id} — Poll for result
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from typing import Any
@@ -23,6 +24,7 @@ from src.models.schemas import (
     FHIRClaimBundle,
 )
 from src.services.claim_analysis_writer import ClaimAnalysisWriter
+from src.services.redis_service import get_redis_pool
 from src.utils.fhir_parser import FHIRClaimParser
 
 log = structlog.get_logger(__name__)
@@ -116,6 +118,51 @@ async def coordinate_claim(
     )
 
 
+# ── Redis pub/sub for SSE real-time updates ───────────────────────────
+
+CLAIM_UPDATES_CHANNEL = "hfcx:claim:updates"
+
+
+async def _publish_claim_update(
+    claim_id: str,
+    status: str,
+    decision: str | None = None,
+    confidence: float | None = None,
+    error: str | None = None,
+) -> None:
+    """Publish a claim status update to Redis pub/sub for SSE consumers."""
+    import redis.asyncio as aioredis
+
+    try:
+        pool = get_redis_pool()
+        client = aioredis.Redis(connection_pool=pool)
+        payload = {
+            "event": "claim_update",
+            "claim_id": claim_id,
+            "status": status,
+        }
+        if decision is not None:
+            payload["decision"] = decision
+        if confidence is not None:
+            payload["confidence"] = str(round(confidence, 4))
+        if error is not None:
+            payload["error"] = error
+        await client.publish(CLAIM_UPDATES_CHANNEL, json.dumps(payload))
+        log.info(
+            "claim_update_published",
+            claim_id=claim_id,
+            status=status,
+        )
+    except Exception as exc:
+        # Non-critical — log and continue. The polling fallback
+        # still works even if pub/sub fails.
+        log.warning(
+            "claim_update_publish_failed",
+            claim_id=claim_id,
+            error=str(exc),
+        )
+
+
 # ── Async submission endpoint ────────────────────────────────────────
 
 async def _process_claim_background(claim_id: str, claim: FHIRClaimBundle) -> None:
@@ -146,13 +193,36 @@ async def _process_claim_background(claim_id: str, claim: FHIRClaimBundle) -> No
                 fhir_extensions=[],
             ),
         }
-        log.info("async_claim_completed", claim_id=claim_id, processing_ms=processing_ms)
+        log.info(
+            "async_claim_completed",
+            claim_id=claim_id,
+            processing_ms=processing_ms,
+        )
+
+        # Publish to Redis so SSE clients (Payer Portal) get
+        # real-time notification that a new claim result is ready.
+        await _publish_claim_update(
+            claim_id=claim_id,
+            status="completed",
+            decision=analysis.adjudication_decision,
+            confidence=analysis.overall_confidence or 0.0,
+        )
     except Exception as exc:
-        log.error("async_claim_failed", claim_id=claim_id, error=str(exc), exc_info=True)
+        log.error(
+            "async_claim_failed",
+            claim_id=claim_id,
+            error=str(exc),
+            exc_info=True,
+        )
         _async_tasks[claim_id] = {
             "status": "failed",
             "error": str(exc),
         }
+        await _publish_claim_update(
+            claim_id=claim_id,
+            status="failed",
+            error=str(exc),
+        )
 
 
 @router.post(

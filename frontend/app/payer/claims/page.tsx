@@ -3,7 +3,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { Loader2, X } from 'lucide-react';
+import { Bell, Loader2, X } from 'lucide-react';
+import { useClaimUpdates } from '@/hooks/use-claim-updates';
+import { toast } from '@/hooks/use-toast';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,7 +47,29 @@ export default function PayerClaimsQueuePage() {
   const t = useTranslations('payer.queue');
   const tc = useTranslations('common');
 
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
+  const [liveCount, setLiveCount] = useState(0);
+
+  // Real-time SSE: auto-refresh claims queue when AI finishes
+  useClaimUpdates((event) => {
+    if (event.status === 'completed' || event.status === 'failed') {
+      // Invalidate the claims query so the Kanban refreshes
+      queryClient.invalidateQueries({ queryKey: ['payer', 'claims'] });
+      setLiveCount((c) => c + 1);
+
+      const decision = event.decision ?? 'unknown';
+      toast({
+        title: `Claim ${event.claim_id} — AI ${decision}`,
+        description: (
+          event.status === 'completed'
+            ? `AI adjudication complete (${decision}).`
+            : `AI processing failed: ${event.error ?? 'unknown error'}`
+        ),
+        variant: event.status === 'completed' ? 'success' : 'destructive',
+      });
+    }
+  });
 
   const { data } = useQuery({
     queryKey: ['payer', 'claims'],
@@ -75,7 +99,22 @@ export default function PayerClaimsQueuePage() {
   return (
     <div className="space-y-4">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
+          {liveCount > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-hcx-success/10 px-2 py-0.5 text-xs font-medium text-hcx-success">
+              <Bell className="size-3" />
+              {liveCount} live update{liveCount > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <span className="flex items-center gap-1.5 text-xs text-hcx-text-muted">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-hcx-success opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-hcx-success" />
+          </span>
+          Live
+        </span>
       </header>
 
       <div

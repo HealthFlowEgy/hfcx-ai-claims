@@ -1,8 +1,9 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Clock, Inbox, ShieldCheck, Timer } from 'lucide-react';
+import { useClaimUpdates } from '@/hooks/use-claim-updates';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KpiCard } from '@/components/shared/kpi-card';
@@ -11,6 +12,15 @@ import { api } from '@/lib/api';
 export default function PayerDashboardPage() {
   const t = useTranslations('payer.dashboard');
   const tq = useTranslations('payer.queue');
+
+  const queryClient = useQueryClient();
+
+  // Real-time SSE: auto-refresh dashboard KPIs when AI finishes
+  useClaimUpdates((event) => {
+    if (event.status === 'completed' || event.status === 'failed') {
+      queryClient.invalidateQueries({ queryKey: ['payer', 'summary'] });
+    }
+  });
 
   const { data } = useQuery({
     queryKey: ['payer', 'summary'],

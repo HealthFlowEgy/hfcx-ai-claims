@@ -193,6 +193,31 @@ export const api = {
     throw new ApiError(0, 'ERR-TIMEOUT', 'AI analysis timed out after 6 minutes', claimId);
   },
 
+  /**
+   * Fire-and-forget claim submission.  Returns immediately with
+   * the claim_id after the backend accepts the async request.
+   * The AI pipeline runs silently in the background.
+   */
+  async submitClaimAsync(
+    fhirClaimBundle: unknown,
+    hcxHeaders: Record<string, string>,
+    opts: FetchOptions = {},
+  ): Promise<{ claim_id: string; status: string; message: string }> {
+    const result = await request<{
+      claim_id: string;
+      status: string;
+      message: string;
+    }>('/internal/ai/coordinate/async', {
+      method: 'POST',
+      body: JSON.stringify({
+        fhir_claim_bundle: fhirClaimBundle,
+        hcx_headers: hcxHeaders,
+      }),
+      ...opts,
+    });
+    return result;
+  },
+
   // ── Direct agent endpoints ──────────────────────────────────────────
   verifyEligibility(
     payload: {
