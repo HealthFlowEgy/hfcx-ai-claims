@@ -97,9 +97,8 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeCoordinateResponse(raw: any): AICoordinateResponse {
+//// ── Helpers ─────────────────────────────────────────────────────
+function normalizeCoordinateResponse(raw: Record<string, unknown>): AICoordinateResponse {
   return {
     correlation_id: raw.correlation_id ?? '',
     claim_id: raw.claim_id ?? '',
@@ -132,8 +131,7 @@ export const api = {
     const { onProgress, ...fetchOpts } = opts;
 
     // Step 1: Submit asynchronously
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let submitResult: any;
+    let submitResult: Record<string, unknown>;
     try {
       submitResult = await request('/internal/ai/coordinate/async', {
         method: 'POST',
@@ -145,7 +143,7 @@ export const api = {
       });
     } catch {
       // Fallback to synchronous endpoint if async is not available
-      const raw: any = await request('/internal/ai/coordinate', {
+      const raw = await request<Record<string, unknown>>('/internal/ai/coordinate', {
         method: 'POST',
         body: JSON.stringify({
           fhir_claim_bundle: fhirClaimBundle,
@@ -153,7 +151,7 @@ export const api = {
         }),
         ...fetchOpts,
       });
-      return normalizeCoordinateResponse(raw);
+      return normalizeCoordinateResponse(raw as AICoordinateResponse);
     }
 
     const claimId = submitResult.claim_id;
@@ -169,8 +167,7 @@ export const api = {
       onProgress?.(`Processing AI analysis... (${(i + 1) * 5}s)`);
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const status: any = await request(`/internal/ai/coordinate/status/${claimId}`, {
+        const status = await request<Record<string, unknown>>(`/internal/ai/coordinate/status/${claimId}`, {
           ...fetchOpts,
         });
 

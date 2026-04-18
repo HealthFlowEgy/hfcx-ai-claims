@@ -34,9 +34,9 @@ export interface DocumentUploadProps {
 
 function fileIcon(type: string) {
   if (type === 'application/pdf') {
-    return <FileText className="size-8 text-hcx-danger" aria-hidden />;
+    return <FileText className="size-8 text-hcx-danger" aria-hidden="true" />;
   }
-  return <Image className="size-8 text-hcx-primary" aria-hidden />;
+  return <Image className="size-8 text-hcx-primary" aria-hidden="true" />;
 }
 
 function formatSize(bytes: number): string {

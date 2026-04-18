@@ -32,7 +32,10 @@ export default function ProviderPaymentsPage() {
     queryFn: () => api.providerPayments(),
   });
 
-  const payments: Payment[] = data?.items ?? [];
+  const payments = useMemo<Payment[]>(
+    () => data?.items ?? [],
+    [data],
+  );
 
   const total = useMemo(
     () => payments.reduce((s, p) => s + p.settled_amount, 0),
