@@ -12,7 +12,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.agents.coordinator import get_coordinator
 from src.api.middleware import verify_service_jwt
@@ -39,7 +39,7 @@ class AsyncSubmitResponse(BaseModel):
     """Returned immediately by the async coordinate endpoint."""
     claim_id: str
     status: str = "processing"
-    message: str = "Claim submitted for AI analysis. Poll /coordinate/status/{claim_id} for results."
+    message: str = "Claim submitted for AI analysis. Poll for results."
 
 
 class ClaimStatusResponse(BaseModel):
@@ -191,7 +191,7 @@ async def coordinate_claim_async(
     return AsyncSubmitResponse(
         claim_id=claim_id,
         status="processing",
-        message=f"Claim {claim_id} submitted for AI analysis. Poll /coordinate/status/{claim_id} for results.",
+        message=f"Claim {claim_id} submitted. Poll /status/{claim_id}.",
     )
 
 
@@ -210,8 +210,9 @@ async def coordinate_claim_status(
     if task is None:
         # Not in memory — check the database (may have been processed by another pod)
         try:
-            from src.models.orm import AIClaimAnalysis, create_engine_and_session
             from sqlalchemy import select
+
+            from src.models.orm import AIClaimAnalysis, create_engine_and_session
 
             _, session_factory = create_engine_and_session()
             async with session_factory() as session:
