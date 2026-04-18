@@ -10,11 +10,16 @@
  * them uniformly (SRS §9.3 error handling table).
  */
 import type {
+  AdjudicationDecision,
   AICoordinateResponse,
   ClaimStatus,
   ClaimSummary,
   ClaimType,
+  CodingValidationResult,
+  EligibilityResult,
   FeedbackStats,
+  FraudDetectionResult,
+  MedicalNecessityResult,
   NetworkGraphData,
   PayerSummary,
   ProviderSummary,
@@ -97,7 +102,7 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-//// ── Helpers ─────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────
 function normalizeCoordinateResponse(raw: Record<string, unknown>): AICoordinateResponse {
   return {
     correlation_id: (raw.correlation_id as string) ?? '',
