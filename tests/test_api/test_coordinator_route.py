@@ -1,4 +1,8 @@
-"""Tests for src/api/routes/coordinator.py — sync, async, and status endpoints."""
+"""Tests for src/api/routes/coordinator.py — sync, async, and status endpoints.
+
+APP_ENV=development in the test env means verify_service_jwt is a no-op,
+so we only need a syntactically valid Authorization header.
+"""
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +12,8 @@ from src.models.schemas import (
     AgentStatus,
     EligibilityResult,
 )
+
+_AUTH = {"Authorization": "Bearer dev-token"}
 
 
 def _mock_analysis():
@@ -72,7 +78,10 @@ _VALID_PAYLOAD = {
                             },
                         }
                     ],
-                    "total": {"value": 850.0, "currency": "EGP"},
+                    "total": {
+                        "value": 850.0,
+                        "currency": "EGP",
+                    },
                     "item": [
                         {
                             "sequence": 1,
@@ -97,8 +106,8 @@ _VALID_PAYLOAD = {
 
 
 @pytest.mark.asyncio
-async def test_coordinate_sync_success(async_client, service_jwt):
-    """POST /internal/ai/coordinate returns 200 with valid bundle."""
+async def test_coordinate_sync_success(async_client):
+    """POST /internal/ai/coordinate returns 200."""
     analysis = _mock_analysis()
 
     with (
@@ -117,7 +126,7 @@ async def test_coordinate_sync_success(async_client, service_jwt):
         resp = await async_client.post(
             "/internal/ai/coordinate",
             json=_VALID_PAYLOAD,
-            headers={"Authorization": f"Bearer {service_jwt}"},
+            headers=_AUTH,
         )
 
     assert resp.status_code == 200
@@ -127,10 +136,8 @@ async def test_coordinate_sync_success(async_client, service_jwt):
 
 
 @pytest.mark.asyncio
-async def test_coordinate_async_returns_processing(
-    async_client, service_jwt
-):
-    """POST /internal/ai/coordinate/async returns 200 + processing."""
+async def test_coordinate_async_returns_processing(async_client):
+    """POST /internal/ai/coordinate/async returns processing."""
     analysis = _mock_analysis()
 
     with (
@@ -149,7 +156,7 @@ async def test_coordinate_async_returns_processing(
         resp = await async_client.post(
             "/internal/ai/coordinate/async",
             json=_VALID_PAYLOAD,
-            headers={"Authorization": f"Bearer {service_jwt}"},
+            headers=_AUTH,
         )
 
     assert resp.status_code == 200
@@ -159,21 +166,17 @@ async def test_coordinate_async_returns_processing(
 
 
 @pytest.mark.asyncio
-async def test_coordinate_status_not_found(
-    async_client, service_jwt
-):
-    """GET /internal/ai/coordinate/status/{id} returns 404 for unknown."""
+async def test_coordinate_status_not_found(async_client):
+    """GET /internal/ai/coordinate/status/{id} returns 404."""
     resp = await async_client.get(
         "/internal/ai/coordinate/status/NONEXISTENT-CLAIM",
-        headers={"Authorization": f"Bearer {service_jwt}"},
+        headers=_AUTH,
     )
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_coordinate_sync_invalid_bundle(
-    async_client, service_jwt
-):
+async def test_coordinate_sync_invalid_bundle(async_client):
     """POST /internal/ai/coordinate with bad bundle returns 422."""
     resp = await async_client.post(
         "/internal/ai/coordinate",
@@ -181,16 +184,16 @@ async def test_coordinate_sync_invalid_bundle(
             "fhir_claim_bundle": {"invalid": True},
             "hcx_headers": {},
         },
-        headers={"Authorization": f"Bearer {service_jwt}"},
+        headers=_AUTH,
     )
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_coordinate_sync_no_auth(async_client):
-    """POST /internal/ai/coordinate without JWT returns 401/403."""
+    """POST /internal/ai/coordinate without JWT returns 403."""
     resp = await async_client.post(
         "/internal/ai/coordinate",
         json=_VALID_PAYLOAD,
     )
-    assert resp.status_code in (401, 403)
+    assert resp.status_code == 403
