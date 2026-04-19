@@ -89,7 +89,7 @@ export default function NewClaimPage() {
     defaultValues: {
       patient_nid: '',
       claim_type: 'outpatient',
-      payer_id: 'MISR-INSURANCE-001',
+      payer_id: 'GIG',
       provider_id: 'HCP-EG-CAIRO-001',
       service_lines: [
         {
@@ -395,7 +395,18 @@ export default function NewClaimPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="payer-id">{tClaim('payer')}</Label>
-              <Input id="payer-id" {...form.register('payer_id')} />
+              <select
+                id="payer-id"
+                {...form.register('payer_id')}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="GIG">GIG Insurance - Egypt</option>
+                <option value="AXA">AXA Insurance - Egypt</option>
+                <option value="Allianz">Allianz Insurance - Egypt</option>
+                <option value="Orient">Orient Insurance - Egypt</option>
+                <option value="MetLife">MetLife Insurance - Egypt</option>
+                <option value="Mohandes">Mohandes Insurance - Egypt</option>
+              </select>
               <FieldError message={form.formState.errors.payer_id?.message} />
             </div>
             <div className="space-y-1.5">
