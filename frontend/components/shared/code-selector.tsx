@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Search, X } from 'lucide-react';
 
@@ -92,8 +92,8 @@ export function CodeSelector({
         const data = await resp.json();
         setResults(data.results ?? []);
         setHighlightIndex(-1);
-      } catch (err: any) {
-        if (err?.name !== 'AbortError') {
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name !== 'AbortError') {
           setResults([]);
         }
       } finally {
