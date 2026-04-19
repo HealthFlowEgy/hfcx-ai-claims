@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Icd10Selector } from '@/components/shared/icd10-selector';
+import { CodeSelector } from '@/components/shared/code-selector';
 import { PatientNidInput } from '@/components/shared/patient-nid-input';
 import { AIRecommendationCard } from '@/components/shared/ai-recommendation-card';
 import { api } from '@/lib/api';
@@ -431,7 +431,7 @@ export default function NewClaimPage() {
             {fields.map((field, index) => (
               <div
                 key={field.id}
-                className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 md:grid-cols-7"
+                className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 md:grid-cols-8"
               >
                 <div className="md:col-span-1">
                   <Label>{tClaim('serviceDate')}</Label>
@@ -448,22 +448,34 @@ export default function NewClaimPage() {
                     name={`service_lines.${index}.icd10_code`}
                     render={({ field, fieldState }) => (
                       <div>
-                        <Icd10Selector
+                        <CodeSelector
                           value={field.value}
                           onChange={field.onChange}
+                          codeType="icd10"
                         />
                         <FieldError message={fieldState.error?.message} />
                       </div>
                     )}
                   />
                 </div>
-                <div className="md:col-span-1">
+                <div className="md:col-span-2">
                   <Label>CPT</Label>
-                  <Input
-                    placeholder="99213"
-                    {...form.register(`service_lines.${index}.procedure_code`)}
+                  <Controller
+                    control={form.control}
+                    name={`service_lines.${index}.procedure_code`}
+                    render={({ field, fieldState }) => (
+                      <div>
+                        <CodeSelector
+                          value={field.value}
+                          onChange={field.onChange}
+                          codeType="cpt"
+                          placeholder="Search CPT code or procedure..."
+                        />
+                        <FieldError message={fieldState.error?.message} />
+                      </div>
+                    )}
                   />
-                  <FieldError message={form.formState.errors.service_lines?.[index]?.procedure_code?.message} />
+                  
                 </div>
                 <div className="md:col-span-1">
                   <Label>Qty</Label>

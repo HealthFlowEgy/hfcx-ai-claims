@@ -1816,3 +1816,45 @@ async def generate_regulatory_report(
         size_kb=random.randint(500, 3000),  # noqa: S311
         status="ready",
     )
+
+
+# ─── Medical Code Search (ICD-10-CM + CPT) ──────────────────────────────
+class CodeSearchResult(BaseModel):
+    code: str
+    description: str
+
+
+class CodeSearchResponse(BaseModel):
+    results: list[CodeSearchResult]
+    total_available: int
+    code_type: str
+
+
+@router.get("/bff/codes/search", response_model=CodeSearchResponse)
+async def search_medical_codes(
+    q: str = Query("", description="Search query (code or description)"),
+    type: Literal["icd10", "cpt"] = Query("icd10", description="Code type"),
+    limit: int = Query(15, ge=1, le=50, description="Max results"),
+    _: str = Depends(verify_service_jwt),
+) -> CodeSearchResponse:
+    """
+    Search ICD-10-CM or CPT codes by prefix or description substring.
+
+    SRS §FR-PP-ICD-001 — searchable Arabic/English ICD-10 autocomplete.
+    Extended to include CPT procedure code search with procedure name mapping.
+
+    Data sources:
+      - ICD-10-CM: CDC FY2026 (74,719 billable codes)
+      - CPT-4: 8,222 procedure codes with descriptions
+    """
+    from src.services.code_search_service import CodeSearchService
+
+    svc = CodeSearchService.get_instance()
+    results = svc.search(query=q, code_type=type, limit=limit)
+    total = svc.icd10_count if type == "icd10" else svc.cpt_count
+
+    return CodeSearchResponse(
+        results=[CodeSearchResult(**r) for r in results],
+        total_available=total,
+        code_type=type,
+    )
