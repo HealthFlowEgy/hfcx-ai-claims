@@ -61,10 +61,10 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 256Mi
+              memory: 128Mi
             limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /
@@ -94,7 +94,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: hfcx-frontend
-  minReplicas: 2
+  minReplicas: 1
   maxReplicas: 6
   metrics:
     - type: Resource

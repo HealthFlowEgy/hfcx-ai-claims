@@ -59,6 +59,7 @@ spec:
             - --hostname-strict=false
             - --http-enabled=true
             - --proxy-headers=xforwarded
+            - --hostname-strict-https=true
             - --import-realm
           ports:
             - containerPort: 8080
@@ -106,14 +107,16 @@ spec:
             httpGet:
               path: /health/ready
               port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 10
           livenessProbe:
             httpGet:
               path: /health/live
               port: 8080
-            initialDelaySeconds: 60
+            initialDelaySeconds: 120
             periodSeconds: 30
+            failureThreshold: 5
       volumes:
         - name: realm-config
           configMap:

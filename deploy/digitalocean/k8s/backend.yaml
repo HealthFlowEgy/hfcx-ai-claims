@@ -103,11 +103,11 @@ spec:
                 name: hfcx-ai-secrets
           resources:
             requests:
-              cpu: 500m
-              memory: 1Gi
+              cpu: 250m
+              memory: 512Mi
             limits:
-              cpu: "2"
-              memory: 4Gi
+              cpu: "1"
+              memory: 1536Mi
           readinessProbe:
             httpGet:
               path: /internal/ai/health
@@ -146,7 +146,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: hfcx-ai-api
-  minReplicas: 3
+  minReplicas: 2
   maxReplicas: 10
   metrics:
     - type: Resource
@@ -220,7 +220,7 @@ spec:
               memory: 512Mi
             limits:
               cpu: "1"
-              memory: 2Gi
+              memory: 1Gi
           # Liveness: the consumer writes /tmp/healthy on each successful
           # message batch (see src/kafka/consumer.py _process_one). If the
           # file is older than 5 minutes, the probe fails and k8s restarts.
@@ -248,7 +248,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: hfcx-ai-consumer
-  minReplicas: 3
+  minReplicas: 2
   maxReplicas: 15
   metrics:
     - type: Resource
