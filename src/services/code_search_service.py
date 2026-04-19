@@ -12,7 +12,6 @@ Data sources:
 from __future__ import annotations
 
 import csv
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -60,7 +59,7 @@ class CodeSearchService:
             return
 
         codes: list[CodeEntry] = []
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.rstrip("\n")
                 if not line.strip():
@@ -87,7 +86,7 @@ class CodeSearchService:
             return
 
         codes: list[CodeEntry] = []
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             reader = csv.reader(f)
             next(reader, None)  # skip header
             for row in reader:
