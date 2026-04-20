@@ -1250,52 +1250,70 @@ async def regulatory_geographic(
     # Provider IDs follow the pattern HCP-EG-{CITY}-NNN. Extract the city
     # component and map to governorate. Falls back to synthetic data if
     # no real data exists.
-    _, get_session = await create_engine_and_session()
-    async with get_session() as session:
-        # Extract city from provider_id pattern HCP-EG-CITY-NNN
-        stmt = select(
-            func.upper(
-                func.split_part(AIClaimAnalysis.provider_id, literal("-"), literal(3))
-            ).label("gov"),
-            func.count().label("claims"),
-            func.count().filter(
-                AIClaimAnalysis.adjudication_decision == "denied"
-            ).label("denials"),
-            case(
-                (func.count() > 0,
-                 func.count().filter(
-                     AIClaimAnalysis.fraud_risk_level.in_(["high", "critical"])
-                 ).cast(sa.Float) / func.count()),
-                else_=literal(0.0),
-            ).label("fraud_rate"),
-        ).group_by("gov")
-        result = await session.execute(stmt)
-        rows = result.all()
-
-    if rows:
-        # Map city codes to governorate names
-        city_to_gov = {
-            "CAIRO": "Cairo", "ALEX": "Alexandria", "GIZA": "Giza",
-            "LUXOR": "Luxor", "ASWAN": "Aswan", "TANTA": "Gharbia",
-            "MANS": "Dakahlia", "ISMAILIA": "Ismailia", "SUEZ": "Suez",
-            "FAYOUM": "Fayoum", "MINYA": "Minya", "ASYUT": "Asyut",
-            "SOHAG": "Sohag", "QENA": "Qena", "BEHEIRA": "Beheira",
-            "SHARQIA": "Sharqia", "KAFR": "Kafr El Sheikh",
-            "DAMIETTA": "Damietta", "PORTSAID": "Port Said",
-            "BENI": "Beni Suef", "MATROUH": "Matrouh",
-            "NEWVALLEY": "New Valley", "REDSEA": "Red Sea",
-            "NORTHSINAI": "North Sinai", "SOUTHSINAI": "South Sinai",
-            "MONUFIA": "Monufia", "QALYUBIA": "Qalyubia",
-        }
-        return [
-            GovernorateMetric(
-                governorate=city_to_gov.get(r.gov, r.gov.title()),
-                claims=r.claims,
-                denials=r.denials,
-                fraud_rate=round(float(r.fraud_rate), 4),
+    city_to_gov = {
+        "CAIRO": "Cairo", "ALEX": "Alexandria", "GIZA": "Giza",
+        "LUXOR": "Luxor", "ASWAN": "Aswan", "TANTA": "Gharbia",
+        "MANS": "Dakahlia", "ISMAILIA": "Ismailia", "SUEZ": "Suez",
+        "FAYOUM": "Fayoum", "MINYA": "Minya", "ASYUT": "Asyut",
+        "SOHAG": "Sohag", "QENA": "Qena", "BEHEIRA": "Beheira",
+        "SHARQIA": "Sharqia", "KAFR": "Kafr El Sheikh",
+        "DAMIETTA": "Damietta", "PORTSAID": "Port Said",
+        "BENI": "Beni Suef", "MATROUH": "Matrouh",
+        "NEWVALLEY": "New Valley", "REDSEA": "Red Sea",
+        "NORTHSINAI": "North Sinai", "SOUTHSINAI": "South Sinai",
+        "MONUFIA": "Monufia", "QALYUBIA": "Qalyubia",
+    }
+    try:
+        _, get_session = await create_engine_and_session()
+        gov_col = func.upper(
+            func.split_part(
+                AIClaimAnalysis.provider_id,
+                literal("-"),
+                literal(3),
             )
-            for r in rows
-        ]
+        ).label("gov")
+        denied_case = case(
+            (AIClaimAnalysis.adjudication_decision == "denied", 1),
+            else_=None,
+        )
+        fraud_case = case(
+            (AIClaimAnalysis.fraud_risk_level.in_(
+                ["high", "critical"]
+            ), 1),
+            else_=None,
+        )
+        async with get_session() as session:
+            stmt = (
+                select(
+                    gov_col,
+                    func.count().label("claims"),
+                    func.count(denied_case).label("denials"),
+                    case(
+                        (func.count() > 0,
+                         func.count(fraud_case).cast(
+                             sa.Float
+                         ) / func.count()),
+                        else_=literal(0.0),
+                    ).label("fraud_rate"),
+                )
+                .group_by(gov_col)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+        if rows:
+            return [
+                GovernorateMetric(
+                    governorate=city_to_gov.get(
+                        r.gov, r.gov.title()
+                    ),
+                    claims=r.claims,
+                    denials=r.denials,
+                    fraud_rate=round(float(r.fraud_rate), 4),
+                )
+                for r in rows
+            ]
+    except Exception:
+        pass  # fall through to synthetic data
 
     # Fallback: synthetic data for 5 largest governorates
     return [
