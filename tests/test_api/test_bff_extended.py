@@ -30,7 +30,7 @@ def test_mask_nid_empty():
 
 def test_mask_nid_short():
     from src.api.routes.bff import _mask_nid
-    assert _mask_nid("1234") == "1234"
+    assert _mask_nid("1234") == "****"
 
 
 def test_mask_nid_14_digit():
@@ -296,5 +296,6 @@ def test_regulatory_insurers_fallback(client):
         resp = client.get("/internal/ai/bff/regulatory/insurers", headers=_AUTH)
     assert resp.status_code == 200
     data = resp.json()
-    assert "insurers" in data
-    assert isinstance(data["insurers"], list)
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    assert "name" in data[0]

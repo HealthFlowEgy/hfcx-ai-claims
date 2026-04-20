@@ -178,7 +178,7 @@ async def test_coordinate_status_not_found(async_client):
         new_callable=AsyncMock,
         return_value=None,
     ), patch(
-        "src.api.routes.coordinator.create_engine_and_session",
+        "src.models.orm.create_engine_and_session",
         side_effect=Exception("no db in test"),
     ):
         resp = await async_client.get(
