@@ -26,13 +26,12 @@ const WESTERN_TO_EASTERN: Record<string, string> = {
 };
 
 export function toArabicDigits(input: string | number): string {
-  // ISSUE-039: Also convert decimal point and comma for Arabic locale.
-  // Only convert '.' when it appears between digits (e.g. 1,234.56)
-  // to avoid mangling ICD-10 codes like J06.9.
+  // ISSUE-039: Convert Western digits to Eastern Arabic digits.
+  // Decimal/thousands separators are handled by Intl.NumberFormat
+  // in formatEgp() — this function only converts digit characters
+  // so it's safe for mixed strings like ICD-10 codes (J06.9).
   return String(input)
-    .replace(/[0-9]/g, (d) => WESTERN_TO_EASTERN[d] ?? d)
-    .replace(/(?<=[٠-٩])\.(?=[٠-٩])/g, '٫')   // Arabic decimal separator
-    .replace(/(?<=[٠-٩]),(?=[٠-٩])/g, '٬');      // Arabic thousands separator
+    .replace(/[0-9]/g, (d) => WESTERN_TO_EASTERN[d] ?? d);
 }
 
 export function maskNationalId(nid: string | null | undefined): string {
