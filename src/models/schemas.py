@@ -139,8 +139,10 @@ class FHIRClaimBundle(BaseModel):
         import re
         v = _normalize_national_id(v)
         if not re.match(_EG_NATIONAL_ID_RE, v):
-            # Allow API test placeholders but mark them clearly
-            if v in {"api-check", "synthetic-test"}:
+            # ISSUE-025: Only allow sentinel values in development
+            from src.config import get_settings as _get_settings
+            _s = _get_settings()
+            if getattr(_s, 'app_env', 'production') == 'development' and v in {"api-check", "synthetic-test"}:
                 return v
             raise ValueError(
                 f"patient_id must be a 14-digit Egyptian National ID, got: {v!r}"
@@ -246,6 +248,7 @@ class ClaimAnalysisState(BaseModel):
     coding: CodingValidationResult | None = None
     fraud: FraudDetectionResult | None = None
     necessity: MedicalNecessityResult | None = None
+    multimodal: dict[str, Any] | None = None  # ISSUE-014: multimodal analysis results
 
     # Final decision
     adjudication_decision: AdjudicationDecision | None = None
@@ -283,6 +286,7 @@ class AICoordinateResponse(BaseModel):
     coding: CodingValidationResult | None = None
     fraud: FraudDetectionResult | None = None
     necessity: MedicalNecessityResult | None = None
+    multimodal: dict[str, Any] | None = None  # ISSUE-014
     processing_time_ms: int
     model_versions: dict[str, str] = Field(default_factory=dict)
     fhir_extensions: list[dict[str, Any]] = Field(

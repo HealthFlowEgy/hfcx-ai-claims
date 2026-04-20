@@ -244,6 +244,13 @@ services:
       - .:/app
     working_dir: /app
     restart: on-failure
+    # ISSUE-059: Add healthcheck using heartbeat file
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ── Frontend Portals (Next.js) ────────────────────────────────────────────
   frontend:
@@ -259,6 +266,8 @@ services:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
       NEXT_PUBLIC_API_BASE_URL: http://ai-claims:8090
+      # ISSUE-060: Add internal URL for server-side proxy requests
+      API_INTERNAL_URL: http://ai-claims:8090
     ports:
       - "3000:3000"
 

@@ -55,16 +55,26 @@ export function NetworkGraph({ data, onNodeClick, className }: NetworkGraphProps
 
     const colX = [PAD + 40, W / 2, W - PAD - 40];
 
+    // ISSUE-022: Improved distribution with jitter to prevent overlap on large datasets
     function distribute(items: typeof data.nodes, col: number): NodePos[] {
       const count = items.length || 1;
-      const spacing = (H - 2 * PAD) / count;
-      return items.map((n, i) => ({
-        id: n.id,
-        label: n.label,
-        type: n.type,
-        x: colX[col],
-        y: PAD + spacing * i + spacing / 2,
-      }));
+      // Use multiple sub-columns if too many nodes
+      const maxPerCol = Math.floor((H - 2 * PAD) / 40);
+      const subCols = Math.ceil(count / maxPerCol);
+      const colWidth = 60;
+      return items.map((n, i) => {
+        const subCol = Math.floor(i / maxPerCol);
+        const posInCol = i % maxPerCol;
+        const effectiveCount = Math.min(count - subCol * maxPerCol, maxPerCol);
+        const spacing = (H - 2 * PAD) / effectiveCount;
+        return {
+          id: n.id,
+          label: n.label,
+          type: n.type,
+          x: colX[col] + (subCol - (subCols - 1) / 2) * colWidth,
+          y: PAD + spacing * posInCol + spacing / 2,
+        };
+      });
     }
 
     const positions: NodePos[] = [
@@ -180,6 +190,10 @@ export function NetworkGraph({ data, onNodeClick, className }: NetworkGraphProps
                 (e.target === selectedNode && e.source === n.id),
             );
           const dimmed = selectedNode != null && !isSelected && !isConnected;
+          // ISSUE-021: Highlight cluster membership
+          const inCluster = data.clusters?.some(
+            (c) => c.nodes.includes(n.id) && c.cluster_score >= 0.5,
+          );
 
           return (
             <g
@@ -204,7 +218,7 @@ export function NetworkGraph({ data, onNodeClick, className }: NetworkGraphProps
                 r={isSelected ? 22 : 18}
                 fill={TYPE_COLORS[n.type] || '#64748b'}
                 fillOpacity={dimmed ? 0.25 : 1}
-                stroke={isSelected ? '#f59e0b' : 'white'}
+                stroke={isSelected ? '#f59e0b' : inCluster ? '#ef4444' : 'white'}
                 strokeWidth={isSelected ? 3 : 2}
               />
               <text

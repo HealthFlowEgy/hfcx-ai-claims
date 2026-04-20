@@ -123,6 +123,46 @@ class LLMService:
                 return await call_async_breaker(LLM_BREAKER, _do_call)
         raise RuntimeError("unreachable")  # pragma: no cover
 
+    async def complete_vision(
+        self,
+        messages: list[dict],
+        model: str | None = None,
+        max_tokens: int = 700,
+        temperature: float = 0.1,
+    ) -> str:
+        """
+        ISSUE-053: Vision completion via LiteLLM — accepts full messages array
+        including image content. Routes through circuit breaker and retry logic.
+        """
+        target_model = model or settings.multimodal_model
+        payload = {
+            "model": target_model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        async def _do_call() -> str:
+            with MODEL_INFERENCE_LATENCY.labels(model=target_model).time():
+                response = await self._client.post(
+                    "/v1/chat/completions", json=payload
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(settings.litellm_max_retries),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+            retry=retry_if_exception_type(
+                (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError)
+            ),
+            reraise=True,
+        ):
+            with attempt:
+                return await call_async_breaker(LLM_BREAKER, _do_call)
+        raise RuntimeError("unreachable")  # pragma: no cover
+
     async def embed(
         self, texts: list[str], model: str = "ollama/nomic-embed-text"
     ) -> list[list[float]]:

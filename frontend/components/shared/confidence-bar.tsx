@@ -60,7 +60,8 @@ export function ConfidenceBar({
       <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
         <div
           className={cn('h-full transition-all', bar)}
-          style={{ width: `${pct}%` }}
+          // ISSUE-029: Ensure minimum visual width so 0% doesn't render invisible
+          style={{ width: `${Math.max(pct, value > 0 ? 2 : 0)}%` }}
         />
       </div>
     </div>

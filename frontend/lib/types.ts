@@ -22,18 +22,24 @@ export type AgentStatus =
   | 'failed'
   | 'bypassed';
 
+// ISSUE-007: Add all decision types
 export type AdjudicationDecision =
   | 'approved'
   | 'denied'
   | 'pended'
-  | 'partial';
+  | 'partial'
+  | 'voided'
+  | 'settled'
+  | 'investigating';
 
+// ISSUE-007: Add 'partial' to ClaimStatus
 export type ClaimStatus =
   | 'submitted'
   | 'in_review'
   | 'ai_analyzed'
   | 'approved'
   | 'denied'
+  | 'partial'
   | 'investigating'
   | 'settled'
   | 'voided';

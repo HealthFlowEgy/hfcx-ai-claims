@@ -9,6 +9,7 @@ import {
   Clock,
   Search,
   Send,
+  SplitSquareHorizontal,
   XCircle,
 } from 'lucide-react';
 
@@ -29,6 +30,8 @@ const STATUS_STYLES: Record<ClaimStatus, { classes: string; Icon: React.Componen
   investigating: { classes: 'badge-investigating', Icon: Search },
   settled: { classes: 'badge-settled', Icon: Banknote },
   voided: { classes: 'badge-voided', Icon: Ban },
+  // ISSUE-007: Add partial status
+  partial: { classes: 'badge-in-review', Icon: SplitSquareHorizontal },
 };
 
 export interface ClaimStatusBadgeProps {

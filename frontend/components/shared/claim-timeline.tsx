@@ -56,7 +56,8 @@ export function ClaimTimeline({ events, className }: ClaimTimelineProps) {
         const isLast = idx === events.length - 1;
 
         return (
-          <li key={`${evt.stage}-${idx}`} className="flex gap-4">
+          {/* ISSUE-069: Use stable key with timestamp instead of index */}
+          <li key={`${evt.stage}-${evt.timestamp}`} className="flex gap-4">
             {/* Dot + connecting line */}
             <div className="relative flex flex-col items-center">
               <DotIcon status={evt.status} />

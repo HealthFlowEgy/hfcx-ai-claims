@@ -58,8 +58,10 @@ export function FraudGauge({
   const fillEndX = cx + r * Math.cos(angle);
   const fillEndY = cy - r * Math.sin(angle);
 
-  const bg = `M ${startX} ${cy} A ${r} ${r} 0 0 1 ${endX} ${cy}`;
-  const fill = `M ${startX} ${cy} A ${r} ${r} 0 0 1 ${fillEndX} ${fillEndY}`;
+  // ISSUE-028: Use large-arc-flag=1 when arc > 50% of semicircle
+  const largeArc = value > 0.5 ? 1 : 0;
+  const bg = `M ${startX} ${cy} A ${r} ${r} 0 1 1 ${endX} ${cy}`;
+  const fill = `M ${startX} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${fillEndX} ${fillEndY}`;
 
   const color = zoneColor(value);
   const riskBucket = value >= 0.6 ? 'high' : value >= 0.3 ? 'medium' : 'low';

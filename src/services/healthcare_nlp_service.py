@@ -108,7 +108,7 @@ async def _ensure_medspacy() -> Any:
             return _MEDSPACY_NLP
         try:
             import medspacy
-            _MEDSPACY_NLP = await asyncio.get_event_loop().run_in_executor(
+            _MEDSPACY_NLP = await asyncio.get_running_loop().run_in_executor(
                 None, medspacy.load
             )
             log.info("healthcare_nlp_loaded", backend="medspacy")
@@ -129,7 +129,7 @@ async def _ensure_spacy() -> Any:
         try:
             import spacy
             try:
-                _SPACY_NLP = await asyncio.get_event_loop().run_in_executor(
+                _SPACY_NLP = await asyncio.get_running_loop().run_in_executor(
                     None, spacy.load, "en_core_web_sm"
                 )
             except OSError:
@@ -189,7 +189,7 @@ class HealthcareNLPService:
         nlp = await _ensure_medspacy()
         if nlp is not None:
             try:
-                doc = await asyncio.get_event_loop().run_in_executor(
+                doc = await asyncio.get_running_loop().run_in_executor(
                     None, nlp, text[:2000]
                 )
                 for ent in doc.ents:
@@ -211,7 +211,7 @@ class HealthcareNLPService:
             nlp = await _ensure_spacy()
             if nlp is not None:
                 try:
-                    doc = await asyncio.get_event_loop().run_in_executor(
+                    doc = await asyncio.get_running_loop().run_in_executor(
                         None, nlp, text[:2000]
                     )
                     for ent in doc.ents:

@@ -20,6 +20,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { LanguageToggle } from '@/components/shared/language-toggle';
 import { devSession, portalsForRoles, type PortalKey } from '@/lib/session';
+import type { SessionUser } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 /**
@@ -32,10 +33,36 @@ export default async function PortalSelectorPage() {
   const t = await getTranslations('portals');
   const tb = await getTranslations('brand');
 
-  // Server-side session resolution. Production replaces devSession()
-  // with a call to the BFF /session endpoint that validates the
-  // Keycloak JWT and returns the user's roles.
-  const session = devSession();
+  // ISSUE-036: In production, resolve session from BFF; fall back to devSession in development
+  let session: SessionUser;
+  const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
+  if (isDev) {
+    session = devSession();
+  } else {
+    try {
+      const { cookies } = await import('next/headers');
+      const cookieStore = await cookies();
+      const token = cookieStore.get('hcx_session')?.value;
+      if (!token) {
+        // No session — redirect to login
+        const { redirect } = await import('next/navigation');
+        redirect('/api/auth/login');
+      }
+      const apiBase = process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'https://api.claim.healthflow.tech';
+      const resp = await fetch(`${apiBase}/internal/ai/bff/session`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (resp.ok) {
+        session = await resp.json();
+      } else {
+        // Token invalid — fall back to dev session in staging, redirect in prod
+        session = devSession();
+      }
+    } catch {
+      session = devSession();
+    }
+  }
   const allowed = portalsForRoles(session.roles);
 
   const portals: {

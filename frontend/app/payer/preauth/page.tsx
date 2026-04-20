@@ -2,13 +2,16 @@
 
 import { useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { CheckCircle2, Stethoscope, XCircle } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2, Loader2, Stethoscope, XCircle } from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { api } from '@/lib/api';
 import { cn, formatDate, formatEgp } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 type PreAuthReview = {
   request_id: string;
@@ -61,14 +64,62 @@ const SEED_REVIEWS: PreAuthReview[] = [
   },
 ];
 
+// ISSUE-022: Decision type for preauth
+type DecisionType = 'approved' | 'partial' | 'more_info' | 'denied';
+
 export default function PayerPreAuthPage() {
   const t = useTranslations('payer.preauth');
   const tq = useTranslations('payer.queue');
   const locale = useLocale() as 'ar' | 'en';
+  const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(
     SEED_REVIEWS[0]?.request_id ?? null,
   );
   const selected = SEED_REVIEWS.find((r) => r.request_id === selectedId);
+
+  // ISSUE-022: Decision mutation
+  const decisionMutation = useMutation({
+    mutationFn: async ({
+      requestId,
+      decision,
+    }: {
+      requestId: string;
+      decision: DecisionType;
+    }) => {
+      const resp = await fetch(
+        `/api/proxy/internal/ai/bff/payer/preauth/${requestId}/decision`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision }),
+        },
+      );
+      if (!resp.ok) throw new Error('Decision submission failed');
+      return resp.json();
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        variant: 'success',
+        title: 'Decision submitted',
+        description: `Pre-auth ${variables.requestId} marked as ${variables.decision}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['payer', 'preauth'] });
+    },
+    onError: () => {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to submit decision. Please try again.',
+      });
+    },
+  });
+
+  const handleDecision = (decision: DecisionType) => {
+    if (!selectedId) return;
+    decisionMutation.mutate({ requestId: selectedId, decision });
+  };
+
+  const isPending = decisionMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -156,15 +207,44 @@ export default function PayerPreAuthPage() {
                 </ul>
               </div>
 
+              {/* ISSUE-022: Decision buttons with onClick handlers */}
               <div className="grid grid-cols-2 gap-2 pt-2 md:grid-cols-4">
-                <Button variant="success">
-                  <CheckCircle2 className="size-4" aria-hidden />
+                <Button
+                  variant="success"
+                  onClick={() => handleDecision('approved')}
+                  disabled={isPending}
+                >
+                  {isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="size-4" aria-hidden />
+                  )}
                   {tq('approve')}
                 </Button>
-                <Button variant="default">{t('partialApprove')}</Button>
-                <Button variant="outline">{t('requestMoreInfo')}</Button>
-                <Button variant="destructive">
-                  <XCircle className="size-4" aria-hidden />
+                <Button
+                  variant="default"
+                  onClick={() => handleDecision('partial')}
+                  disabled={isPending}
+                >
+                  {t('partialApprove')}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleDecision('more_info')}
+                  disabled={isPending}
+                >
+                  {t('requestMoreInfo')}
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDecision('denied')}
+                  disabled={isPending}
+                >
+                  {isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <XCircle className="size-4" aria-hidden />
+                  )}
                   {tq('deny')}
                 </Button>
               </div>

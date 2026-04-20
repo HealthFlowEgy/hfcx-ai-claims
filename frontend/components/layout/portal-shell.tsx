@@ -1,10 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { Menu, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { LanguageToggle } from '@/components/shared/language-toggle';
 import { cn } from '@/lib/utils';
 
@@ -36,12 +39,59 @@ const ACCENT_BG: Record<PortalShellProps['portal']['accent'], string> = {
 export function PortalShell({ portal, nav, children }: PortalShellProps) {
   const pathname = usePathname();
   const t = useTranslations('common');
+  // ISSUE-052: Mobile navigation drawer state
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const navLinks = nav.map((item) => {
+    const active =
+      pathname === item.href ||
+      (item.href !== '/' && pathname.startsWith(item.href));
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={() => setMobileNavOpen(false)}
+        className={cn(
+          'flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          active
+            ? 'bg-hcx-primary-light text-hcx-primary'
+            : 'text-hcx-text hover:bg-accent hover:text-accent-foreground',
+        )}
+        aria-current={active ? 'page' : undefined}
+      >
+        <span className="flex items-center gap-2">
+          {item.icon}
+          {item.label}
+        </span>
+        {item.badge && (
+          <Badge variant="outline" className="text-xs">
+            {item.badge}
+          </Badge>
+        )}
+      </Link>
+    );
+  });
 
   return (
     <div className="min-h-screen bg-background">
       {/* Top bar */}
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-card px-4">
         <div className="flex items-center gap-3">
+          {/* ISSUE-052: Hamburger menu for mobile */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            onClick={() => setMobileNavOpen(!mobileNavOpen)}
+            aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={mobileNavOpen}
+          >
+            {mobileNavOpen ? (
+              <X className="size-5" />
+            ) : (
+              <Menu className="size-5" />
+            )}
+          </Button>
           <div
             className={cn(
               'flex size-8 items-center justify-center rounded-md text-white',
@@ -77,38 +127,33 @@ export function PortalShell({ portal, nav, children }: PortalShellProps) {
         </div>
       </header>
 
+      {/* ISSUE-052: Mobile navigation drawer overlay */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 md:hidden"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      {/* ISSUE-052: Mobile navigation drawer */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 start-0 z-40 w-64 transform border-e border-border bg-card p-3 pt-16 transition-transform duration-200 md:hidden',
+          mobileNavOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
+        )}
+        role="complementary"
+      >
+        <nav className="space-y-1" aria-label={portal.name} role="navigation">
+          {navLinks}
+        </nav>
+      </aside>
+
       <div className="flex">
-        {/* Sidebar */}
-        <aside className="hidden w-64 shrink-0 border-e border-border bg-card p-3 md:block">
-          <nav className="space-y-1" aria-label={portal.name}>
-            {nav.map((item) => {
-              const active =
-                pathname === item.href ||
-                (item.href !== '/' && pathname.startsWith(item.href));
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    active
-                      ? 'bg-hcx-primary-light text-hcx-primary'
-                      : 'text-hcx-text hover:bg-accent hover:text-accent-foreground',
-                  )}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <span className="flex items-center gap-2">
-                    {item.icon}
-                    {item.label}
-                  </span>
-                  {item.badge && (
-                    <Badge variant="outline" className="text-xs">
-                      {item.badge}
-                    </Badge>
-                  )}
-                </Link>
-              );
-            })}
+        {/* Desktop sidebar */}
+        <aside className="hidden w-64 shrink-0 border-e border-border bg-card p-3 md:block" role="complementary">
+          <nav className="space-y-1" aria-label={portal.name} role="navigation">
+            {navLinks}
           </nav>
         </aside>
 

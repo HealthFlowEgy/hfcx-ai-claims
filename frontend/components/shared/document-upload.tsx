@@ -20,8 +20,10 @@ import { cn } from '@/lib/utils';
  */
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
-const ACCEPT_STRING = '.pdf,.jpg,.jpeg,.png';
+// ISSUE-031: Add TIFF and HEIC support; also validate by extension fallback
+const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff', 'image/heic'];
+const ACCEPTED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.heic'];
+const ACCEPT_STRING = '.pdf,.jpg,.jpeg,.png,.tiff,.tif,.heic';
 
 export interface DocumentUploadProps {
   onUpload: (file: File) => void | Promise<void>;
@@ -57,8 +59,10 @@ export function DocumentUpload({
   const [dragActive, setDragActive] = useState(false);
 
   const validate = useCallback((f: File): string | null => {
-    if (!ACCEPTED_TYPES.includes(f.type)) {
-      return 'Unsupported file type. Please upload PDF, JPEG, or PNG.';
+    // ISSUE-031: Validate by MIME type first, then fall back to extension
+    const ext = '.' + f.name.split('.').pop()?.toLowerCase();
+    if (!ACCEPTED_TYPES.includes(f.type) && !ACCEPTED_EXTENSIONS.includes(ext)) {
+      return 'Unsupported file type. Please upload PDF, JPEG, PNG, TIFF, or HEIC.';
     }
     if (f.size > MAX_FILE_SIZE) {
       return `File exceeds 10 MB limit (${formatSize(f.size)}).`;

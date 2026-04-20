@@ -112,10 +112,14 @@ export function GovernorateMap({
     y: number;
   } | null>(null);
 
+  // ISSUE-036: Case-insensitive governorate matching to handle backend variations
   const valueMap = useMemo(() => {
     const m = new Map<string, number>();
     for (const d of data) {
+      // Try exact match first, then case-insensitive
       m.set(d.governorate, d.value);
+      // Also store lowercase for fallback matching
+      m.set(d.governorate.toLowerCase(), d.value);
     }
     return m;
   }, [data]);
@@ -125,9 +129,19 @@ export function GovernorateMap({
     return Math.max(...data.map((d) => d.value), 1);
   }, [data]);
 
-  const onPointerEnter = useCallback(
-    (name: string, x: number, y: number) => {
-      setTooltip({ name, value: valueMap.get(name) ?? 0, x, y });
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // ISSUE-068: Use pointer events relative to container for correct tooltip positioning
+  const onPointerMove = useCallback(
+    (name: string, e: React.PointerEvent) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setTooltip({
+        name,
+        value: valueMap.get(name) ?? valueMap.get(name.toLowerCase()) ?? 0,
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
     },
     [valueMap],
   );
@@ -148,7 +162,7 @@ export function GovernorateMap({
   }
 
   return (
-    <div className={cn('relative', className)}>
+    <div ref={containerRef} className={cn('relative', className)}>
       <svg
         viewBox={`0 0 ${SVG_W} ${SVG_H}`}
         className="w-full"
@@ -156,20 +170,20 @@ export function GovernorateMap({
         aria-label={`Egypt governorate map — ${metric}`}
       >
         {GOVERNORATE_GRID.map(([name, col, row]) => {
-          const val = valueMap.get(name) ?? 0;
+          // ISSUE-036: Try exact then lowercase match
+          const val = valueMap.get(name) ?? valueMap.get(name.toLowerCase()) ?? 0;
+          const hasData = valueMap.has(name) || valueMap.has(name.toLowerCase());
           const ratio = val / maxVal;
           const x = PADDING + col * (CELL_W + GAP);
           const y = PADDING + row * (CELL_H + GAP);
-          const fill = valueMap.has(name)
+          const fill = hasData
             ? intensityColor(ratio)
             : 'hsl(var(--muted))';
 
           return (
             <g
               key={name}
-              onPointerEnter={() =>
-                onPointerEnter(name, x + CELL_W / 2, y + CELL_H / 2)
-              }
+              onPointerMove={(e) => onPointerMove(name, e)}
               onPointerLeave={onPointerLeave}
               className="cursor-pointer"
             >
@@ -194,7 +208,7 @@ export function GovernorateMap({
               >
                 {name}
               </text>
-              {valueMap.has(name) && (
+              {hasData && (
                 <text
                   x={x + CELL_W / 2}
                   y={y + CELL_H / 2 + 12}
@@ -215,9 +229,10 @@ export function GovernorateMap({
       {tooltip && (
         <div
           className="pointer-events-none absolute z-50 rounded-md bg-hcx-text px-3 py-1.5 text-xs text-white shadow-lg"
+          // ISSUE-068: Use pixel coordinates from pointer events
           style={{
-            left: `${(tooltip.x / SVG_W) * 100}%`,
-            top: `${(tooltip.y / SVG_H) * 100}%`,
+            left: tooltip.x,
+            top: tooltip.y,
             transform: 'translate(-50%, -120%)',
           }}
         >

@@ -348,12 +348,13 @@ class FraudDetectionAgent:
                     )
                 ).first()
 
-                # Upsert our observations
+                # Upsert our observations — ISSUE-006: ON CONFLICT DO NOTHING
                 insert_stmt = text(
                     """
                     INSERT INTO ai_claim_duplicate
                         (dup_hash, claim_correlation_id, provider_id, payer_id)
                     SELECT unnest(:hashes), :corr, :prov, :payer
+                    ON CONFLICT DO NOTHING
                     """
                 )
                 await session.execute(
@@ -376,16 +377,19 @@ class FraudDetectionAgent:
         except Exception as exc:
             log.warning("dedup_db_failed_fallback_redis", error=str(exc))
 
-        # Redis fallback
-        marker = f"fraud:dup:{hashes[0]}"
-        existing = await self._redis.get(marker)
-        if existing and existing != (claim.hcx_correlation_id or claim.claim_id):
-            return "Potential duplicate claim (Redis fallback)"
-        await self._redis.setex(
-            marker,
-            86400 * window_days,
-            claim.hcx_correlation_id or claim.claim_id,
-        )
+        # Redis fallback — ISSUE-006: check ALL hashes, not just hashes[0]
+        corr_id = claim.hcx_correlation_id or claim.claim_id
+        for h in hashes:
+            marker = f"fraud:dup:{h}"
+            existing = await self._redis.get(marker)
+            if existing and existing != corr_id:
+                return "Potential duplicate claim (Redis fallback)"
+        for h in hashes:
+            await self._redis.setex(
+                f"fraud:dup:{h}",
+                86400 * window_days,
+                corr_id,
+            )
         return None
 
     # ── FR-FD-004: PyOD ensemble over the feature vector ─────────────────

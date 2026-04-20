@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from src.config import get_settings
 from src.services.circuit_breaker import NDP_BREAKER, call_async_breaker
@@ -49,11 +49,6 @@ class NDPService:
         # Backwards-compat per-instance close; prefer close_shared() at shutdown.
         pass
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=4),
-        reraise=True,
-    )
     async def check_prescription(
         self,
         *,
@@ -67,6 +62,8 @@ class NDPService:
           - prescribed (EDA codes the patient has been prescribed in the last 90d)
           - dispensed  (EDA codes already dispensed — candidates for double-fill)
           - unprescribed (drug codes in this claim not found in any prescription)
+
+        ISSUE-016: Uses AsyncRetrying instead of sync @retry decorator.
         """
         if not drug_codes:
             return {
@@ -87,9 +84,15 @@ class NDPService:
             )
 
         try:
-            response = await call_async_breaker(NDP_BREAKER, _do_call)
-            response.raise_for_status()
-            data: dict[str, Any] = response.json()
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=1, max=4),
+                reraise=True,
+            ):
+                with attempt:
+                    response = await call_async_breaker(NDP_BREAKER, _do_call)
+                    response.raise_for_status()
+                    data: dict[str, Any] = response.json()
         except Exception as exc:
             log.warning("ndp_lookup_failed", error=str(exc))
             return {

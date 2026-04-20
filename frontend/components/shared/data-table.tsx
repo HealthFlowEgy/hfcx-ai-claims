@@ -159,7 +159,8 @@ export function DataTable<TData, TValue>({
             disabled={!table.getCanPreviousPage()}
             aria-label={t('back')}
           >
-            <ChevronRight className="size-4 rtl-mirror" aria-hidden />
+            {/* ISSUE-027: Swapped icons — ChevronLeft for previous, ChevronRight for next */}
+            <ChevronLeft className="size-4 rtl-mirror" aria-hidden />
           </Button>
           <Button
             variant="outline"
@@ -168,7 +169,7 @@ export function DataTable<TData, TValue>({
             disabled={!table.getCanNextPage()}
             aria-label={t('next')}
           >
-            <ChevronLeft className="size-4 rtl-mirror" aria-hidden />
+            <ChevronRight className="size-4 rtl-mirror" aria-hidden />
           </Button>
         </div>
       </div>

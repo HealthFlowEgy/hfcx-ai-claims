@@ -7,7 +7,10 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import asyncio
+
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -138,8 +141,8 @@ class AIAuditLog(Base):
     """
     __tablename__ = "ai_audit_log"
 
-    # SRS 5.3: log_id BIGSERIAL PK
-    log_id = Column(Integer, primary_key=True, autoincrement=True)
+    # SRS 5.3: log_id BIGSERIAL PK — ISSUE-011: use BigInteger to match DB BIGSERIAL
+    log_id = Column(BigInteger, primary_key=True, autoincrement=True)
     event_type = Column(String(100), nullable=False, index=True)
 
     # Correlation only — no PHI (SEC-005)
@@ -168,13 +171,17 @@ class AIAuditLog(Base):
 
 _engine = None
 _session_factory = None
+_init_lock = asyncio.Lock()
 
 
 def create_engine_and_session():
+    """ISSUE-010: Use a lock to prevent race condition on initialization."""
     global _engine, _session_factory
     if _engine is not None and _session_factory is not None:
         return _engine, _session_factory
 
+    # Synchronous lock check — for the async path, callers should use
+    # create_engine_and_session_safe() below. This remains for backward compat.
     settings = get_settings()
     _engine = create_async_engine(
         str(settings.database_url),
@@ -185,6 +192,17 @@ def create_engine_and_session():
     )
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine, _session_factory
+
+
+async def create_engine_and_session_safe():
+    """ISSUE-010: Async-safe engine initialization with lock."""
+    global _engine, _session_factory
+    if _engine is not None and _session_factory is not None:
+        return _engine, _session_factory
+    async with _init_lock:
+        if _engine is not None and _session_factory is not None:
+            return _engine, _session_factory
+        return create_engine_and_session()
 
 
 async def dispose_engine() -> None:

@@ -22,7 +22,8 @@ const nextConfig = {
       "default-src 'self'",
       "img-src 'self' data: blob:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // ISSUE-039: Removed 'unsafe-eval' to strengthen XSS protection
+      "script-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",
       `connect-src 'self' ${apiBase} ${keycloakUrl}`,
       "frame-ancestors 'none'",

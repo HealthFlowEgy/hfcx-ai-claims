@@ -34,6 +34,9 @@ const toastVariants = cva(
           'destructive group border-hcx-danger bg-hcx-danger text-white',
         success:
           'border-hcx-success bg-hcx-success/10 text-hcx-text',
+        // ISSUE-065: Add warning variant
+        warning:
+          'border-hcx-warning bg-hcx-warning/10 text-hcx-text',
       },
     },
     defaultVariants: {

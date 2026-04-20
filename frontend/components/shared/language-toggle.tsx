@@ -25,6 +25,9 @@ export function LanguageToggle() {
         ? '; Secure'
         : '';
     document.cookie = `hcx_locale=${next}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+    // ISSUE-040: Update document dir attribute immediately for RTL/LTR switch
+    document.documentElement.dir = next === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = next;
     startTransition(() => router.refresh());
   };
 
@@ -36,8 +39,9 @@ export function LanguageToggle() {
       disabled={pending}
       aria-label={t('language')}
     >
-      <Languages className="size-4" aria-hidden />
-      {locale === 'ar' ? t('english') : t('arabic')}
+      <Languages className={`size-4 ${pending ? 'animate-spin' : ''}`} aria-hidden />
+      {/* ISSUE-041: Show loading state during transition */}
+      {pending ? '...' : locale === 'ar' ? t('english') : t('arabic')}
     </Button>
   );
 }

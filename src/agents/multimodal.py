@@ -201,13 +201,23 @@ class MultimodalDocumentAgent:
             "temperature": 0.1,
         }
 
-        client = self._llm._get_shared_client()  # reuse the existing pool
-        response = await client.post("/v1/chat/completions", json=payload)
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        # ISSUE-053: Use public complete_vision() instead of private _get_shared_client()
+        content = await self._llm.complete_vision(
+            messages=payload["messages"],
+            model=settings.multimodal_model,
+            max_tokens=700,
+            temperature=0.1,
+        )
         try:
-            clean = content.strip().lstrip("```json").rstrip("```").strip()
+            # ISSUE-017: Use proper prefix/suffix removal
+            clean = content.strip()
+            if clean.startswith("```json"):
+                clean = clean[len("```json"):]
+            elif clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
             parsed = json.loads(clean)
         except (json.JSONDecodeError, AttributeError):
             parsed = {"summary": content, "diagnoses": [], "medications": [], "notes": []}

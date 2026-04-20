@@ -130,6 +130,31 @@ class RedisService:
         except Exception:
             return False
 
+    async def lpush(self, key: str, value: str) -> int:
+        """Push a value to the head of a Redis list."""
+        try:
+            return int(await self._client.lpush(key, value))
+        except Exception as exc:
+            log.warning("redis_lpush_failed", key=key, error=str(exc))
+            return 0
+
+    async def lrange(self, key: str, start: int, stop: int) -> list[str]:
+        """Return a range of elements from a Redis list."""
+        try:
+            result = await self._client.lrange(key, start, stop)
+            return [str(v) for v in result] if result else []
+        except Exception as exc:
+            log.warning("redis_lrange_failed", key=key, error=str(exc))
+            return []
+
+    async def expire(self, key: str, ttl_seconds: int) -> bool:
+        """Set a TTL on a Redis key."""
+        try:
+            return bool(await self._client.expire(key, ttl_seconds))
+        except Exception as exc:
+            log.warning("redis_expire_failed", key=key, error=str(exc))
+            return False
+
     async def close(self) -> None:
         await self._client.close()
 

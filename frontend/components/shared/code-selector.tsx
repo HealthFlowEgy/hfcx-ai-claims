@@ -84,9 +84,15 @@ export function CodeSelector({
           type: codeType,
           limit: '15',
         });
+        // ISSUE-042: Use api proxy path but add correlation ID header
         const resp = await fetch(
           `/api/proxy/internal/ai/bff/codes/search?${params}`,
-          { signal: controller.signal },
+          {
+            signal: controller.signal,
+            headers: {
+              'X-HCX-Correlation-ID': `cs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            },
+          },
         );
         if (!resp.ok) throw new Error('Search failed');
         const data = await resp.json();

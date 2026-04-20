@@ -259,7 +259,15 @@ Return ONLY a JSON object with this structure:
                 max_tokens=600,
                 temperature=0.1,
             )
-            clean = response.strip().lstrip("```json").rstrip("```").strip()
+            # ISSUE-017: Use removeprefix/removesuffix instead of lstrip/rstrip
+            clean = response.strip()
+            if clean.startswith("```json"):
+                clean = clean[len("```json"):]
+            elif clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
             return json.loads(clean)
         except Exception as exc:
             log.warning("necessity_llm_failed", error=str(exc))

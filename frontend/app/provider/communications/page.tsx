@@ -1,15 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { MessageSquare, Send } from 'lucide-react';
+import { Loader2, MessageSquare, Send } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 type Message = {
   id: string;
@@ -32,6 +33,7 @@ export default function ProviderCommunicationsPage() {
   const t = useTranslations('provider.communications');
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
+  const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string>('');
   const [draft, setDraft] = useState('');
 
@@ -51,30 +53,41 @@ export default function ProviderCommunicationsPage() {
   const selectedId = activeId || threads[0]?.id || '';
   const active = threads.find((t) => t.id === selectedId);
 
-  const [localMessages, setLocalMessages] = useState<
-    Record<string, Message[]>
-  >({});
-
-  const allMessages = active
-    ? [...active.messages, ...(localMessages[active.id] ?? [])]
-    : [];
+  // ISSUE-049: Persist replies to backend instead of local state only
+  const replyMutation = useMutation({
+    mutationFn: async ({ threadId, body }: { threadId: string; body: string }) => {
+      const resp = await fetch(
+        `/api/proxy/internal/ai/bff/provider/communications/${threadId}/reply`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body }),
+        },
+      );
+      if (!resp.ok) throw new Error('Reply failed');
+      return resp.json();
+    },
+    onSuccess: () => {
+      setDraft('');
+      queryClient.invalidateQueries({ queryKey: ['provider', 'communications'] });
+      toast({
+        variant: 'success',
+        title: t('replySent'),
+        description: t('replySuccess'),
+      });
+    },
+    onError: () => {
+      toast({
+        variant: 'destructive',
+        title: tc('error'),
+        description: 'Failed to send reply. Please try again.',
+      });
+    },
+  });
 
   const send = () => {
     if (!active || !draft.trim()) return;
-    setLocalMessages((prev) => ({
-      ...prev,
-      [active.id]: [
-        ...(prev[active.id] ?? []),
-        {
-          id: `m-${Date.now()}`,
-          from_name: 'Provider',
-          direction: 'outbound' as const,
-          body: draft,
-          sent_at: new Date().toISOString(),
-        },
-      ],
-    }));
-    setDraft('');
+    replyMutation.mutate({ threadId: active.id, body: draft.trim() });
   };
 
   if (isLoading) {
@@ -146,7 +159,7 @@ export default function ProviderCommunicationsPage() {
             {!active && (
               <p className="text-sm text-hcx-text-muted">{tc('noData')}</p>
             )}
-            {allMessages.map((m) => (
+            {active?.messages.map((m) => (
               <div
                 key={m.id}
                 className={cn(
@@ -173,8 +186,15 @@ export default function ProviderCommunicationsPage() {
                   className="w-full rounded-md border border-input bg-background p-2 text-sm"
                 />
                 <div className="flex justify-end">
-                  <Button onClick={send} disabled={!draft.trim()}>
-                    <Send className="size-4" aria-hidden />
+                  <Button
+                    onClick={send}
+                    disabled={!draft.trim() || replyMutation.isPending}
+                  >
+                    {replyMutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Send className="size-4" aria-hidden />
+                    )}
                     {t('reply')}
                   </Button>
                 </div>

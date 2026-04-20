@@ -44,7 +44,9 @@ export default function RegulatoryReportsPage() {
     },
   });
 
-  const freshness = new Date(Date.now() - 2 * 3600000).toISOString();
+  // ISSUE-031: Use actual data timestamp from most recent entry instead of hardcoded 2h ago
+  const latestEntry = entries.length > 0 ? entries[0] : null;
+  const freshness = latestEntry?.generated_at ?? new Date().toISOString();
   const isStale =
     Date.now() - new Date(freshness).getTime() > 24 * 3600000;
 

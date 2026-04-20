@@ -13,7 +13,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const code = searchParams.get('code');
-  const state = searchParams.get('state') || '/';
+  const rawState = searchParams.get('state') || '/';
+  // ISSUE-012: Validate state to prevent open redirect — only allow relative paths
+  const state = rawState.startsWith('/') && !rawState.startsWith('//') && !rawState.includes('://') ? rawState : '/';
 
   if (!code) {
     return NextResponse.json(
@@ -84,7 +86,8 @@ export async function GET(request: NextRequest) {
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
-        maxAge: 3600, // 1 hour SSO session idle
+        // ISSUE-041: Use actual Keycloak refresh_expires_in instead of hardcoded value
+        maxAge: tokens.refresh_expires_in ?? 3600,
       });
     }
 

@@ -24,7 +24,7 @@ from src.models.schemas import (
     FHIRClaimBundle,
 )
 from src.services.claim_analysis_writer import ClaimAnalysisWriter
-from src.services.redis_service import get_redis_pool
+from src.services.redis_service import RedisService, get_redis_pool
 from src.utils.fhir_parser import FHIRClaimParser
 
 log = structlog.get_logger(__name__)
@@ -33,9 +33,30 @@ router = APIRouter()
 # Parser is stateless — safe to share.
 _parser = FHIRClaimParser()
 
-# ── In-memory task tracker for async submissions ─────────────────────
-# Maps claim_id → {"status": "processing"|"completed"|"failed", "result": ..., "error": ...}
-_async_tasks: dict[str, dict[str, Any]] = {}
+# ── ISSUE-019: Redis-backed async task tracker (replaces in-memory dict) ──
+_TASK_PREFIX = "hfcx:async_task:"
+_TASK_TTL = 3600  # 1 hour
+
+
+async def _set_task_status(claim_id: str, data: dict[str, Any]) -> None:
+    """Store task status in Redis with TTL."""
+    try:
+        redis = RedisService()
+        await redis.setex(f"{_TASK_PREFIX}{claim_id}", _TASK_TTL, json.dumps(data, default=str))
+    except Exception as exc:
+        log.warning("redis_task_set_failed", claim_id=claim_id, error=str(exc))
+
+
+async def _get_task_status(claim_id: str) -> dict[str, Any] | None:
+    """Get task status from Redis."""
+    try:
+        redis = RedisService()
+        raw = await redis.get(f"{_TASK_PREFIX}{claim_id}")
+        if raw:
+            return json.loads(raw)
+    except Exception as exc:
+        log.warning("redis_task_get_failed", claim_id=claim_id, error=str(exc))
+    return None
 
 
 class AsyncSubmitResponse(BaseModel):
@@ -112,6 +133,7 @@ async def coordinate_claim(
         coding=analysis.coding,
         fraud=analysis.fraud,
         necessity=analysis.necessity,
+        multimodal=analysis.multimodal,  # ISSUE-014
         processing_time_ms=processing_ms,
         model_versions=analysis.model_versions,
         fhir_extensions=[],
@@ -175,24 +197,27 @@ async def _process_claim_background(claim_id: str, claim: FHIRClaimBundle) -> No
 
         await ClaimAnalysisWriter.persist(claim=claim, analysis=analysis)
 
-        _async_tasks[claim_id] = {
+        result = AICoordinateResponse(
+            correlation_id=analysis.correlation_id,
+            claim_id=claim.claim_id,
+            adjudication_decision=analysis.adjudication_decision,
+            overall_confidence=analysis.overall_confidence or 0.0,
+            requires_human_review=analysis.requires_human_review,
+            human_review_reasons=analysis.human_review_reasons,
+            eligibility=analysis.eligibility,
+            coding=analysis.coding,
+            fraud=analysis.fraud,
+            necessity=analysis.necessity,
+            multimodal=analysis.multimodal,  # ISSUE-014
+            processing_time_ms=processing_ms,
+            model_versions=analysis.model_versions,
+            fhir_extensions=[],
+        )
+        # ISSUE-019: Store in Redis instead of in-memory dict
+        await _set_task_status(claim_id, {
             "status": "completed",
-            "result": AICoordinateResponse(
-                correlation_id=analysis.correlation_id,
-                claim_id=claim.claim_id,
-                adjudication_decision=analysis.adjudication_decision,
-                overall_confidence=analysis.overall_confidence or 0.0,
-                requires_human_review=analysis.requires_human_review,
-                human_review_reasons=analysis.human_review_reasons,
-                eligibility=analysis.eligibility,
-                coding=analysis.coding,
-                fraud=analysis.fraud,
-                necessity=analysis.necessity,
-                processing_time_ms=processing_ms,
-                model_versions=analysis.model_versions,
-                fhir_extensions=[],
-            ),
-        }
+            "result": result.model_dump(mode="json"),
+        })
         log.info(
             "async_claim_completed",
             claim_id=claim_id,
@@ -214,10 +239,10 @@ async def _process_claim_background(claim_id: str, claim: FHIRClaimBundle) -> No
             error=str(exc),
             exc_info=True,
         )
-        _async_tasks[claim_id] = {
+        await _set_task_status(claim_id, {
             "status": "failed",
             "error": str(exc),
-        }
+        })
         await _publish_claim_update(
             claim_id=claim_id,
             status="failed",
@@ -252,8 +277,8 @@ async def coordinate_claim_async(
 
     claim_id = claim.claim_id or f"CLAIM-{uuid.uuid4().hex[:12]}"
 
-    # Register the task as processing
-    _async_tasks[claim_id] = {"status": "processing"}
+    # ISSUE-019: Register the task as processing in Redis
+    await _set_task_status(claim_id, {"status": "processing"})
 
     # Fire-and-forget the background processing
     asyncio.create_task(_process_claim_background(claim_id, claim))
@@ -276,70 +301,73 @@ async def coordinate_claim_status(
     claim_id: str,
     _: str = Depends(verify_service_jwt),
 ) -> ClaimStatusResponse:
-    task = _async_tasks.get(claim_id)
+    # ISSUE-019: Check Redis first (worker-agnostic)
+    task = await _get_task_status(claim_id)
 
-    if task is None:
-        # Not in memory — check the database (may have been processed by another pod)
-        try:
-            from sqlalchemy import select
+    if task is not None:
+        if task["status"] == "completed":
+            result_data = task.get("result")
+            result = AICoordinateResponse(**result_data) if result_data else None
+            return ClaimStatusResponse(
+                claim_id=claim_id,
+                status="completed",
+                result=result,
+            )
+        elif task["status"] == "failed":
+            return ClaimStatusResponse(
+                claim_id=claim_id,
+                status="failed",
+                error=task.get("error", "Unknown error"),
+            )
+        else:
+            return ClaimStatusResponse(
+                claim_id=claim_id,
+                status="processing",
+            )
 
-            from src.models.orm import AIClaimAnalysis, create_engine_and_session
+    # Not in Redis — check the database (may have been processed before Redis TTL expired)
+    try:
+        from sqlalchemy import select
 
-            _, session_factory = create_engine_and_session()
-            async with session_factory() as session:
-                stmt = select(AIClaimAnalysis).where(
-                    AIClaimAnalysis.claim_id == claim_id
-                ).order_by(AIClaimAnalysis.created_at.desc()).limit(1)
-                row = (await session.execute(stmt)).scalar_one_or_none()
+        from src.models.orm import AIClaimAnalysis, create_engine_and_session
 
-                if row and row.completed_at:
-                    return ClaimStatusResponse(
-                        claim_id=claim_id,
-                        status="completed",
-                        result=AICoordinateResponse(
-                            correlation_id=row.correlation_id or "",
-                            claim_id=row.claim_id,
-                            adjudication_decision=(
-                                AdjudicationDecision(row.adjudication_decision)
-                                if row.adjudication_decision
-                                else AdjudicationDecision.PENDED
-                            ),
-                            overall_confidence=row.overall_confidence or 0.0,
-                            requires_human_review=row.requires_human_review or True,
-                            human_review_reasons=row.human_review_reasons or [],
-                            eligibility=row.eligibility_result,
-                            coding=row.coding_result,
-                            fraud=row.fraud_result,
-                            necessity=row.necessity_result,
-                            processing_time_ms=row.processing_time_ms or 0,
-                            model_versions=row.model_versions or {},
-                            fhir_extensions=[],
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            stmt = select(AIClaimAnalysis).where(
+                AIClaimAnalysis.claim_id == claim_id
+            ).order_by(AIClaimAnalysis.created_at.desc()).limit(1)
+            row = (await session.execute(stmt)).scalar_one_or_none()
+
+            if row and row.completed_at:
+                return ClaimStatusResponse(
+                    claim_id=claim_id,
+                    status="completed",
+                    result=AICoordinateResponse(
+                        correlation_id=row.correlation_id or "",
+                        claim_id=row.claim_id,
+                        adjudication_decision=(
+                            AdjudicationDecision(row.adjudication_decision)
+                            if row.adjudication_decision
+                            else AdjudicationDecision.PENDED
                         ),
-                    )
-                elif row:
-                    return ClaimStatusResponse(
-                        claim_id=claim_id,
-                        status="processing",
-                    )
-        except Exception as exc:
-            log.warning("status_db_check_failed", claim_id=claim_id, error=str(exc))
+                        overall_confidence=row.overall_confidence or 0.0,
+                        requires_human_review=row.requires_human_review or True,
+                        human_review_reasons=row.human_review_reasons or [],
+                        eligibility=row.eligibility_result,
+                        coding=row.coding_result,
+                        fraud=row.fraud_result,
+                        necessity=row.necessity_result,
+                        processing_time_ms=row.processing_time_ms or 0,
+                        model_versions=row.model_versions or {},
+                        fhir_extensions=[],
+                    ),
+                )
+            elif row:
+                return ClaimStatusResponse(
+                    claim_id=claim_id,
+                    status="processing",
+                )
+    except Exception as exc:
+        log.warning("status_db_check_failed", claim_id=claim_id, error=str(exc))
 
-        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")
-
-    if task["status"] == "completed":
-        return ClaimStatusResponse(
-            claim_id=claim_id,
-            status="completed",
-            result=task["result"],
-        )
-    elif task["status"] == "failed":
-        return ClaimStatusResponse(
-            claim_id=claim_id,
-            status="failed",
-            error=task.get("error", "Unknown error"),
-        )
-    else:
-        return ClaimStatusResponse(
-            claim_id=claim_id,
-            status="processing",
-        )
+    raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")

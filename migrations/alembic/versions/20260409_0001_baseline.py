@@ -59,6 +59,14 @@ def upgrade() -> None:
         sa.Column("fraud_risk_level", sa.String(20)),
         sa.Column("model_versions", JSONB),
         sa.Column("processing_time_ms", sa.Integer),
+        # ISSUE-005: Add missing denormalized columns to match init.sql
+        sa.Column("provider_id", sa.String(128)),
+        sa.Column("payer_id", sa.String(128)),
+        sa.Column("claim_type", sa.String(32)),
+        sa.Column("total_amount", sa.Numeric(12, 2)),
+        sa.Column("patient_nid_hash", sa.String(64)),
+        sa.Column("patient_nid_masked", sa.String(20)),
+        sa.Column("service_date", sa.Date),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -230,6 +238,16 @@ def upgrade() -> None:
         end = f"2026-{m + 1:02d}-01" if m < 12 else "2027-01-01"
         op.execute(
             f"CREATE TABLE IF NOT EXISTS ai_audit_log_2026_{m:02d} "
+            f"PARTITION OF ai_audit_log "
+            f"FOR VALUES FROM ('{start}') TO ('{end}')"
+        )
+
+    # ISSUE-050: Add 2027 partitions as safety net
+    for m in range(1, 13):
+        start = f"2027-{m:02d}-01"
+        end = f"2027-{m + 1:02d}-01" if m < 12 else "2028-01-01"
+        op.execute(
+            f"CREATE TABLE IF NOT EXISTS ai_audit_log_2027_{m:02d} "
             f"PARTITION OF ai_audit_log "
             f"FOR VALUES FROM ('{start}') TO ('{end}')"
         )

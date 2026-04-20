@@ -383,10 +383,11 @@ export default function NewClaimPage() {
                 {...form.register('claim_type')}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
+                {/* ISSUE-067: Use translated labels for claim types */}
                 {['outpatient', 'inpatient', 'pharmacy', 'lab', 'dental', 'vision'].map(
                   (t2) => (
                     <option key={t2} value={t2}>
-                      {t2}
+                      {tClaim(`types.${t2}`)}
                     </option>
                   ),
                 )}

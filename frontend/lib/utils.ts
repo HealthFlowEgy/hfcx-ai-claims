@@ -26,7 +26,11 @@ const WESTERN_TO_EASTERN: Record<string, string> = {
 };
 
 export function toArabicDigits(input: string | number): string {
-  return String(input).replace(/[0-9]/g, (d) => WESTERN_TO_EASTERN[d] ?? d);
+  // ISSUE-039: Also convert decimal point and comma for Arabic locale
+  return String(input)
+    .replace(/[0-9]/g, (d) => WESTERN_TO_EASTERN[d] ?? d)
+    .replace(/\./g, '٫')   // Arabic decimal separator
+    .replace(/,/g, '٬');   // Arabic thousands separator
 }
 
 export function maskNationalId(nid: string | null | undefined): string {

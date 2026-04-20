@@ -17,8 +17,9 @@ const buttonVariants = cva(
           'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+        // ISSUE-066: Added focus-visible ring color
         success:
-          'bg-hcx-success text-white hover:bg-hcx-success/90',
+          'bg-hcx-success text-white hover:bg-hcx-success/90 focus-visible:ring-hcx-success',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-hcx-primary underline-offset-4 hover:underline',
       },

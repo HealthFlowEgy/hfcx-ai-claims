@@ -5,10 +5,12 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   Building2,
   FileStack,
+  Loader2,
   ShieldAlert,
   Timer,
   TrendingDown,
   TrendingUp,
+  XCircle,
 } from 'lucide-react';
 import {
   CartesianGrid,
@@ -28,10 +30,32 @@ export default function RegulatoryDashboardPage() {
   const t = useTranslations('regulatory.dashboard');
   const locale = useLocale() as 'ar' | 'en';
 
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['regulatory', 'summary'],
     queryFn: () => api.regulatorySummary(),
   });
+
+  // ISSUE-058: Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-hcx-primary" />
+        <span className="ms-3 text-sm text-hcx-text-muted">Loading...</span>
+      </div>
+    );
+  }
+
+  // ISSUE-058: Error state
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-hcx-danger/30 bg-hcx-danger/5 p-6 text-center">
+        <XCircle className="mx-auto size-8 text-hcx-danger" />
+        <p className="mt-2 text-sm font-medium text-hcx-danger">
+          Failed to load regulatory dashboard data. Please try again.
+        </p>
+      </div>
+    );
+  }
 
   const s = data ?? {
     total_claims_volume: 0,

@@ -21,6 +21,7 @@ class FeedbackRequest(BaseModel):
     human_decision: str = Field(..., description="What the human adjudicator decided")
     ai_score: float | None = Field(default=None, ge=0.0, le=1.0)
     model: str = "coordinator"
+    notes: str | None = Field(default=None, description="Reviewer notes")  # ISSUE-035
 
 
 class FeedbackResponse(BaseModel):

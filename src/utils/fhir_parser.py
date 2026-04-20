@@ -103,11 +103,23 @@ class FHIRClaimParser:
 
     def _extract_procedure_codes(self, claim: dict) -> list[str]:
         codes = []
+        # From Claim.procedure[]
         for proc in claim.get("procedure", []):
             coding = proc.get("procedureCodeableConcept", {}).get("coding", [])
             for c in coding:
                 if code := c.get("code"):
                     codes.append(code)
+        # ISSUE-015: Also extract from Claim.item[].productOrService (CPT codes)
+        for item in claim.get("item", []):
+            coding = item.get("productOrService", {}).get("coding", [])
+            for c in coding:
+                system = (c.get("system") or "").lower()
+                # Skip drug system markers — those belong in drug_codes
+                if any(marker in system for marker in self._DRUG_SYSTEM_MARKERS):
+                    continue
+                if code := c.get("code"):
+                    if code not in codes:
+                        codes.append(code)
         return codes
 
     # Known drug code systems: EDA formulary, RxNorm, SNOMED medication,

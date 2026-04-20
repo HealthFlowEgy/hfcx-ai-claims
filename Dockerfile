@@ -52,7 +52,7 @@ RUN useradd -m -u 1001 -s /bin/bash hfcx
 
 # Copy pre-built dependencies from builder
 COPY --from=builder /deps /usr/local/lib/python3.11/site-packages/
-ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+# ISSUE-063: Removed redundant PYTHONPATH override (site-packages is already on sys.path)
 
 WORKDIR /app
 

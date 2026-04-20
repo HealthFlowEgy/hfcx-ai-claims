@@ -86,7 +86,7 @@ async def _ensure_ner_pipeline() -> Any:
         try:
             # Fallback: use transformers with AraBERT NER model
             from transformers import pipeline
-            _NER_PIPELINE = await asyncio.get_event_loop().run_in_executor(
+            _NER_PIPELINE = await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: pipeline(
                     "ner",
@@ -165,7 +165,7 @@ class ArabicMedicalNLPService:
                 if _CAMEL_AVAILABLE:
                     # CAMeL Tools NER
                     tokens = text.split()
-                    labels = await asyncio.get_event_loop().run_in_executor(
+                    labels = await asyncio.get_running_loop().run_in_executor(
                         None, ner_pipeline.predict, tokens
                     )
                     current_entity = []
@@ -181,7 +181,7 @@ class ArabicMedicalNLPService:
                     results["confidence"] = 0.85
                 else:
                     # Transformers pipeline
-                    ner_results = await asyncio.get_event_loop().run_in_executor(
+                    ner_results = await asyncio.get_running_loop().run_in_executor(
                         None, ner_pipeline, text[:512]
                     )
                     for ent in ner_results:

@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover — production deploys always have it
     START = "__start__"
     END = "__end__"
 
+from pydantic import ValidationError
 from src.agents.eligibility import EligibilityAgent
 from src.agents.fraud_detection import FraudDetectionAgent
 from src.agents.medical_coding import MedicalCodingAgent
@@ -305,7 +306,7 @@ def should_run_parallel(state: dict[str, Any]) -> str:
     """
     eligibility = state.get("eligibility")
     if eligibility and eligibility.status == AgentStatus.COMPLETED:
-        if not eligibility.is_eligible and not eligibility.coverage_active:
+        if not eligibility.is_eligible or not eligibility.coverage_active:  # ISSUE-013: use 'or' not 'and'
             log.info("skipping_parallel_agents", reason="patient_not_eligible")
             return "adjudicate"
     return "parallel"
@@ -452,16 +453,36 @@ class CoordinatorAgent:
                 )
             raise
 
+        # ISSUE-009: Set total_ms BEFORE constructing ClaimAnalysisState
         total_ms = int((time.monotonic() - t0) * 1000)
         final_state.setdefault("agent_durations_ms", {})["total"] = total_ms
 
-        return ClaimAnalysisState(
-            **{
-                k: v
-                for k, v in final_state.items()
-                if k in ClaimAnalysisState.model_fields
-            }
-        )
+        # ISSUE-024: Wrap ClaimAnalysisState construction in try/except
+        try:
+            return ClaimAnalysisState(
+                **{
+                    k: v
+                    for k, v in final_state.items()
+                    if k in ClaimAnalysisState.model_fields
+                }
+            )
+        except (ValidationError, KeyError) as exc:
+            log.error(
+                "state_construction_failed",
+                claim_id=claim.claim_id,
+                error=str(exc),
+            )
+            if settings.ai_bypass_on_failure:
+                ADJUDICATION_DECISIONS.labels(decision=AdjudicationDecision.PENDED.value).inc()
+                return ClaimAnalysisState(
+                    claim=claim,
+                    correlation_id=claim.hcx_correlation_id,
+                    adjudication_decision=AdjudicationDecision.PENDED,
+                    overall_confidence=0.0,
+                    requires_human_review=True,
+                    human_review_reasons=["AI state construction error — routed to manual queue"],
+                )
+            raise
 
 
 # ─────────────────────────────────────────────────────────────────────────────

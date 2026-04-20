@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+// ISSUE-004: Fix env var name to match the rest of the app
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
 export interface ClaimUpdateEvent {
   event: string;

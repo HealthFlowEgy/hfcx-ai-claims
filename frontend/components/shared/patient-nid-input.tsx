@@ -55,7 +55,8 @@ export const PatientNidInput = forwardRef<HTMLInputElement, PatientNidInputProps
       [onChange, onValidChange],
     );
 
-    const isValid = value.length === 14;
+    // ISSUE-030: Validate Egyptian NID structure (century digit 2 or 3)
+    const isValid = value.length === 14 && /^[23]/.test(value);
     const inputId = id ?? 'patient-nid';
 
     return (

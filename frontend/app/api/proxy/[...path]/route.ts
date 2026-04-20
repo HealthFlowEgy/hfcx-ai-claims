@@ -26,6 +26,7 @@ async function refreshAccessToken(): Promise<{
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  refreshExpiresIn: number;
 } | null> {
   const cookieStore = await cookies();
   const refreshToken = cookieStore.get('hcx_refresh')?.value;
@@ -56,6 +57,8 @@ async function refreshAccessToken(): Promise<{
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? refreshToken,
       expiresIn: tokens.expires_in ?? 300,
+      // ISSUE-041: Capture actual refresh token expiry from Keycloak
+      refreshExpiresIn: tokens.refresh_expires_in ?? 3600,
     };
   } catch {
     return null;
@@ -159,7 +162,8 @@ async function proxyRequest(
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
-        maxAge: 3600,
+        // ISSUE-041: Use actual refresh_expires_in from Keycloak
+        maxAge: refreshedTokens.refreshExpiresIn ?? 3600,
       });
     }
 
@@ -177,4 +181,4 @@ export const GET = proxyRequest;
 export const POST = proxyRequest;
 export const PUT = proxyRequest;
 export const PATCH = proxyRequest;
-export const DELETE = proxyRequest;
+// ISSUE-040: Removed DELETE — backend CORS only allows GET/POST; keep PUT/PATCH for settings updates

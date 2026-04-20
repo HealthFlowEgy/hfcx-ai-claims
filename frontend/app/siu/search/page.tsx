@@ -36,15 +36,25 @@ export default function SiuSearchPage() {
   const [icd10, setIcd10] = useState('');
   const [procedure, setProcedure] = useState('');
 
+  // ISSUE-021: Hash NID client-side using SHA-256 before sending
   const search = useMutation({
-    mutationFn: () =>
-      api.siuCrossPayerSearch({
+    mutationFn: async () => {
+      let nidHash: string | undefined;
+      if (patientNid) {
+        const encoded = new TextEncoder().encode(patientNid);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+        nidHash = Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+      }
+      return api.siuCrossPayerSearch({
         provider_id: providerId || undefined,
-        patient_nid_hash: patientNid || undefined,
+        patient_nid_hash: nidHash,
         icd10_code: icd10 || undefined,
         procedure_code: procedure || undefined,
         limit: 100,
-      }),
+      });
+    },
   });
 
   const results = search.data ?? [];
