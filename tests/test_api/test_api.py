@@ -88,7 +88,11 @@ class TestCoordinatorEndpoint:
              patch(
                  "src.api.routes.coordinator.get_coordinator",
                  return_value=mock_coordinator,
-             ):
+             ), \
+             patch(
+                 "src.api.routes.coordinator.ClaimAnalysisWriter"
+             ) as mock_writer:
+            mock_writer.persist = AsyncMock()
             response = client.post(
                 "/internal/ai/coordinate",
                 json={

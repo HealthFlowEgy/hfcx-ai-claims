@@ -89,14 +89,18 @@ async def test_successful_analysis(sample_claim, monkeypatch):
         }
     )
 
-    fake_llm_client = MagicMock()
-    fake_llm_client.post = AsyncMock(return_value=llm_response)
+    # ISSUE-053: Mock complete_vision instead of private _get_shared_client
+    vision_content = json.dumps({
+        "summary": "Patient has acute URI.",
+        "diagnoses": ["J06.9"],
+        "medications": ["EDA-AMOX-500"],
+        "notes": ["Prescribed 7-day amoxicillin"],
+    })
 
     with patch.object(
         agent, "_fetch_attachment", AsyncMock(return_value=b"\xff\xd8\xff\xe0")
-    ), patch(
-        "src.services.llm_service.LLMService._get_shared_client",
-        return_value=fake_llm_client,
+    ), patch.object(
+        agent._llm, "complete_vision", AsyncMock(return_value=vision_content),
     ):
         result = await agent.analyze(sample_claim)
 

@@ -32,6 +32,7 @@ def _mock_analysis():
     mock.coding = None
     mock.fraud = None
     mock.necessity = None
+    mock.multimodal = None
     mock.model_versions = {"eligibility": "mock-v1"}
     return mock
 
@@ -147,6 +148,10 @@ async def test_coordinate_async_returns_processing(async_client):
         patch(
             "src.api.routes.coordinator.ClaimAnalysisWriter"
         ) as mock_writer,
+        patch(
+            "src.api.routes.coordinator._set_task_status",
+            new_callable=AsyncMock,
+        ),
     ):
         coord = AsyncMock()
         coord.process_claim.return_value = analysis
@@ -168,10 +173,18 @@ async def test_coordinate_async_returns_processing(async_client):
 @pytest.mark.asyncio
 async def test_coordinate_status_not_found(async_client):
     """GET /internal/ai/coordinate/status/{id} returns 404."""
-    resp = await async_client.get(
-        "/internal/ai/coordinate/status/NONEXISTENT-CLAIM",
-        headers=_AUTH,
-    )
+    with patch(
+        "src.api.routes.coordinator._get_task_status",
+        new_callable=AsyncMock,
+        return_value=None,
+    ), patch(
+        "src.api.routes.coordinator.create_engine_and_session",
+        side_effect=Exception("no db in test"),
+    ):
+        resp = await async_client.get(
+            "/internal/ai/coordinate/status/NONEXISTENT-CLAIM",
+            headers=_AUTH,
+        )
     assert resp.status_code == 404
 
 
