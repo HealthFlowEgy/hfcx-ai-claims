@@ -142,7 +142,8 @@ class FHIRClaimBundle(BaseModel):
             # ISSUE-025: Only allow sentinel values in development
             from src.config import get_settings as _get_settings
             _s = _get_settings()
-            if getattr(_s, 'app_env', 'production') == 'development' and v in {"api-check", "synthetic-test"}:
+            is_dev = getattr(_s, 'app_env', 'production') == 'development'
+            if is_dev and v in {"api-check", "synthetic-test"}:
                 return v
             raise ValueError(
                 f"patient_id must be a 14-digit Egyptian National ID, got: {v!r}"

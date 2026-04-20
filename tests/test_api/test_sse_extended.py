@@ -3,8 +3,6 @@ ISSUE-064: Extended SSE route tests — covers auth, content-type, and Redis pub
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 _AUTH = {"Authorization": "Bearer dev-token"}

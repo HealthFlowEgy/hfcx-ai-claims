@@ -19,10 +19,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-import sqlalchemy as sa
 from sqlalchemy import case, func, literal, select, text
 
 from src.api.middleware import verify_service_jwt
@@ -149,7 +149,7 @@ def _status_from_row(row: AIClaimAnalysis) -> str:
     """
     decision = row.adjudication_decision
     # ISSUE-026: Handle all AdjudicationDecision values
-    _DECISION_TO_STATUS = {
+    decision_map = {
         "approved": "approved",
         "denied": "denied",
         "pended": "in_review",
@@ -158,7 +158,7 @@ def _status_from_row(row: AIClaimAnalysis) -> str:
         "settled": "settled",
         "investigating": "investigating",
     }
-    return _DECISION_TO_STATUS.get(decision, "ai_analyzed")
+    return decision_map.get(decision, "ai_analyzed")
 
 
 # ─── BFF: Provider summary ────────────────────────────────────────────────
@@ -209,7 +209,9 @@ async def provider_summary(
             denial_rate = (denied_30d / total_30d) if total_30d else 0.0
 
             # ISSUE-008: Sum actual approved amounts this month
-            month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            month_start = datetime.now(UTC).replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0,
+            )
             payments = (
                 await session.execute(
                     select(
@@ -502,7 +504,8 @@ async def regulatory_summary(
                     )
                 )
             ).scalar() or 1.0  # avoid division by zero
-            loss_ratio = round(float(approved_sum) / float(total_sum), 4) if float(total_sum) > 0 else 0.0
+            t_sum = float(total_sum)
+            loss_ratio = round(float(approved_sum) / t_sum, 4) if t_sum > 0 else 0.0
 
             return RegulatorySummary(
                 total_claims_volume=total,
@@ -661,7 +664,10 @@ async def siu_network(
         # Synthetic fallback for empty/fresh deployments
         return NetworkGraphResponse(
             nodes=[
-                NetworkNode(id="prov:HCP-CAIRO-001", type="provider", label="Kasr El Aini", fraud_score=0.82),
+                NetworkNode(
+                    id="prov:HCP-CAIRO-001", type="provider",
+                    label="Kasr El Aini", fraud_score=0.82,
+                ),
                 NetworkNode(id="pat:P1", type="patient", label="Patient 1"),
                 NetworkNode(id="pharm:EDA-METFORMIN-500", type="pharmacy", label="Metformin 500"),
             ],
@@ -1244,6 +1250,7 @@ async def regulatory_geographic(
     # Provider IDs follow the pattern HCP-EG-{CITY}-NNN. Extract the city
     # component and map to governorate. Falls back to synthetic data if
     # no real data exists.
+    _, get_session = await create_engine_and_session()
     async with get_session() as session:
         # Extract city from provider_id pattern HCP-EG-CITY-NNN
         stmt = select(
@@ -1359,10 +1366,23 @@ async def regulatory_compliance(
 
     if not rows:
         return [
-            ComplianceRow(insurer="Misr Insurance", compliance_score=0.96, last_audit=now - timedelta(days=12), status="compliant"),
-            ComplianceRow(insurer="Allianz Egypt", compliance_score=0.91, last_audit=now - timedelta(days=28), status="compliant"),
-            ComplianceRow(insurer="GlobeMed", compliance_score=0.88, last_audit=now - timedelta(days=19), status="at_risk"),
-            ComplianceRow(insurer="Suez Canal Insurance", compliance_score=0.74, last_audit=now - timedelta(days=45), status="non_compliant"),
+            ComplianceRow(
+                insurer="Misr Insurance", compliance_score=0.96,
+                last_audit=now - timedelta(days=12), status="compliant",
+            ),
+            ComplianceRow(
+                insurer="Allianz Egypt", compliance_score=0.91,
+                last_audit=now - timedelta(days=28), status="compliant",
+            ),
+            ComplianceRow(
+                insurer="GlobeMed", compliance_score=0.88,
+                last_audit=now - timedelta(days=19), status="at_risk",
+            ),
+            ComplianceRow(
+                insurer="Suez Canal Insurance", compliance_score=0.74,
+                last_audit=now - timedelta(days=45),
+                status="non_compliant",
+            ),
         ]
 
     result: list[ComplianceRow] = []

@@ -4,10 +4,9 @@ Matches SRS Section 5 data model.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
-
-import asyncio
 
 from sqlalchemy import (
     BigInteger,

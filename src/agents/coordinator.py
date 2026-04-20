@@ -40,6 +40,7 @@ except ImportError:  # pragma: no cover — production deploys always have it
     END = "__end__"
 
 from pydantic import ValidationError
+
 from src.agents.eligibility import EligibilityAgent
 from src.agents.fraud_detection import FraudDetectionAgent
 from src.agents.medical_coding import MedicalCodingAgent
@@ -306,7 +307,8 @@ def should_run_parallel(state: dict[str, Any]) -> str:
     """
     eligibility = state.get("eligibility")
     if eligibility and eligibility.status == AgentStatus.COMPLETED:
-        if not eligibility.is_eligible or not eligibility.coverage_active:  # ISSUE-013: use 'or' not 'and'
+        # ISSUE-013: use 'or' not 'and'
+        if not eligibility.is_eligible or not eligibility.coverage_active:
             log.info("skipping_parallel_agents", reason="patient_not_eligible")
             return "adjudicate"
     return "parallel"

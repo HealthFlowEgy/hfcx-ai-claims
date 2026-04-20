@@ -5,7 +5,6 @@ file type validation, and error handling.
 from __future__ import annotations
 
 import io
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
