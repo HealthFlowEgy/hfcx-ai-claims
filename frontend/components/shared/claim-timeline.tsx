@@ -56,7 +56,6 @@ export function ClaimTimeline({ events, className }: ClaimTimelineProps) {
         const isLast = idx === events.length - 1;
 
         return (
-          {/* ISSUE-069: Use stable key with timestamp instead of index */}
           <li key={`${evt.stage}-${evt.timestamp}`} className="flex gap-4">
             {/* Dot + connecting line */}
             <div className="relative flex flex-col items-center">

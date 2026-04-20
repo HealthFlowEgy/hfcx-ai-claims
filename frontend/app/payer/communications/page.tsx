@@ -62,7 +62,6 @@ export default function PayerCommunicationsPage() {
               </div>
               <div className="flex items-center gap-2">
                 {th.awaiting_response && (
-                  {/* ISSUE-030: Use correct label instead of 'Loading...' */}
                   <Badge variant="warning">{t('awaitingResponse')}</Badge>
                 )}
                 <span className="text-xs text-hcx-text-muted">
