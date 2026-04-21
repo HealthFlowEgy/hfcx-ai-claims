@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ClaimStatusBadge } from '@/components/shared/claim-status-badge';
+import { CodeSelector } from '@/components/shared/code-selector';
 import { api } from '@/lib/api';
 import type { ClaimStatus } from '@/lib/types';
 import { formatDate, formatEgp } from '@/lib/utils';
@@ -128,18 +129,19 @@ export default function ProviderPreAuthPage() {
             </div>
             <div className="space-y-1.5">
               <Label>ICD-10</Label>
-              <Input
+              <CodeSelector
                 value={newReq.icd10}
-                onChange={(e) => setNewReq({ ...newReq, icd10: e.target.value })}
+                onChange={(code) => setNewReq({ ...newReq, icd10: code })}
+                codeType="icd10"
               />
             </div>
             <div className="space-y-1.5">
               <Label>Procedure</Label>
-              <Input
+              <CodeSelector
                 value={newReq.procedure}
-                onChange={(e) =>
-                  setNewReq({ ...newReq, procedure: e.target.value })
-                }
+                onChange={(code) => setNewReq({ ...newReq, procedure: code })}
+                codeType="cpt"
+                placeholder="Search CPT code or procedure..."
               />
             </div>
             <div className="space-y-1.5">
