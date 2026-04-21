@@ -140,14 +140,14 @@ export default function ProviderClaimsHistoryPage() {
               {focusedClaim.ai_recommendation && (
                 <div className="rounded-md border border-border bg-muted/30 p-3">
                   <p className="mb-1 text-xs font-semibold text-hcx-primary">
-                    AI Recommendation
+                    {tc('aiRecommendation')}
                   </p>
                   <p className="text-xs text-hcx-text-muted">
                     {focusedClaim.ai_recommendation}
                   </p>
                   {focusedClaim.ai_risk_score != null && (
                     <p className="mt-1 text-xs">
-                      Risk Score: <span className="font-semibold">{(focusedClaim.ai_risk_score * 100).toFixed(0)}%</span>
+                      {tc('riskScore')}: <span className="font-semibold">{(focusedClaim.ai_risk_score * 100).toFixed(0)}%</span>
                     </p>
                   )}
                 </div>

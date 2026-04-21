@@ -124,6 +124,9 @@
     "unavailableHint": "The claim is being processed by a human reviewer."
   },
   "claim": {
+    "details": "Claim Details",
+    "aiRecommendation": "AI Recommendation",
+    "riskScore": "Risk Score",
     "id": "Claim ID",
     "patientNid": "Patient NID",
     "providerId": "Provider ID",
