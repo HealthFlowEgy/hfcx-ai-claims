@@ -55,7 +55,7 @@ export default function RegulatoryReportsPage() {
   const locale = useLocale() as 'ar' | 'en';
   const [type, setType] = useState<ReportType>('monthly');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf');
-  const [showCustomBuilder, setShowCustomBuilder] = useState(false);
+  const [, setShowCustomBuilder] = useState(false);
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(
     new Set(['claims_volume', 'denial_rate', 'loss_ratio']),
   );

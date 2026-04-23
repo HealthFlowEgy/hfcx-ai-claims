@@ -20,7 +20,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KpiCard } from '@/components/shared/kpi-card';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
 
 /**
  * Fix #44: Pattern detection visualization with:

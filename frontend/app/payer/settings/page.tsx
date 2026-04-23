@@ -109,11 +109,11 @@ export default function PayerSettingsPage() {
               : 'Auto-routing is OFF. All claims require manual review.'}
           </p>
           <p>
-            Claims with fraud risk score >= {(rules.autoDenyFraudThreshold * 100).toFixed(0)}% will be auto-flagged for SIU review.
+            {`Claims with fraud risk score >= ${(rules.autoDenyFraudThreshold * 100).toFixed(0)}% will be auto-flagged for SIU review.`}
           </p>
           {rules.notifyOnHighRisk && (
             <p>
-              Notifications will be sent for claims with fraud risk >= {(rules.fraudNotifyThreshold * 100).toFixed(0)}%.
+              {`Notifications will be sent for claims with fraud risk >= ${(rules.fraudNotifyThreshold * 100).toFixed(0)}%.`}
             </p>
           )}
         </CardContent>
