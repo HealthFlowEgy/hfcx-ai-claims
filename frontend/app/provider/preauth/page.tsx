@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { ClipboardCheck, Plus } from 'lucide-react';
+import { CheckCircle2, Clock, ClipboardCheck, Plus, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +15,11 @@ import { CodeSelector } from '@/components/shared/code-selector';
 import { api } from '@/lib/api';
 import type { ClaimStatus } from '@/lib/types';
 import { formatDate, formatEgp } from '@/lib/utils';
+
+/**
+ * Fix #12: Pre-auth status tracking with visual timeline
+ * Fix #13: Show approval details (auth number, valid until, authorized qty)
+ */
 
 type PreAuthRequest = {
   request_id: string;
@@ -30,6 +35,66 @@ type PreAuthRequest = {
   valid_until?: string;
   justification?: string;
 };
+
+/** Fix #12: Status timeline steps */
+const STATUS_STEPS = [
+  { key: 'submitted', label: 'Submitted', icon: Clock },
+  { key: 'in_review', label: 'Under Review', icon: Clock },
+  { key: 'approved', label: 'Approved', icon: CheckCircle2 },
+] as const;
+
+function getStepIndex(status: string): number {
+  if (status === 'approved' || status === 'settled') return 2;
+  if (status === 'in_review' || status === 'ai_analyzed') return 1;
+  if (status === 'denied') return 3; // special
+  return 0;
+}
+
+function StatusTimeline({ status }: { status: string }) {
+  const currentStep = getStepIndex(status);
+  const isDenied = status === 'denied';
+
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {STATUS_STEPS.map((step, i) => {
+        const isActive = i <= currentStep && !isDenied;
+        const isCurrent = i === currentStep && !isDenied;
+        return (
+          <div key={step.key} className="flex items-center gap-1">
+            {i > 0 && (
+              <div
+                className={`h-0.5 w-6 ${
+                  isActive ? 'bg-hcx-success' : 'bg-muted'
+                }`}
+              />
+            )}
+            <div
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                isCurrent
+                  ? 'bg-hcx-success/20 text-hcx-success'
+                  : isActive
+                    ? 'bg-hcx-success/10 text-hcx-success'
+                    : 'bg-muted text-hcx-text-muted'
+              }`}
+            >
+              <step.icon className="size-3" />
+              {step.label}
+            </div>
+          </div>
+        );
+      })}
+      {isDenied && (
+        <>
+          <div className="h-0.5 w-6 bg-hcx-danger" />
+          <div className="flex items-center gap-1 rounded-full bg-hcx-danger/20 px-2 py-0.5 text-[10px] font-medium text-hcx-danger">
+            <XCircle className="size-3" />
+            Denied
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function ProviderPreAuthPage() {
   const t = useTranslations('provider.preauth');
@@ -178,11 +243,16 @@ export default function ProviderPreAuthPage() {
       )}
 
       <div className="space-y-3">
+        {requests.length === 0 && (
+          <p className="text-center text-sm text-hcx-text-muted py-8">
+            No pre-authorization requests yet.
+          </p>
+        )}
         {requests.map((r) => (
           <Card key={r.request_id}>
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-4">
-                <div>
+                <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm font-semibold">
                       {r.request_id}
@@ -197,6 +267,8 @@ export default function ProviderPreAuthPage() {
                       {r.justification}
                     </p>
                   )}
+                  {/* Fix #12: Status timeline */}
+                  <StatusTimeline status={r.status} />
                 </div>
                 <div className="text-end">
                   <div className="font-semibold tabular-nums">
@@ -207,16 +279,35 @@ export default function ProviderPreAuthPage() {
                   </div>
                 </div>
               </div>
+              {/* Fix #13: Approval details with auth number, valid until, authorized qty */}
               {r.auth_number && (
                 <Alert variant="success" className="mt-3">
+                  <CheckCircle2 className="size-4" />
                   <AlertTitle className="font-mono text-sm">
-                    {r.auth_number}
+                    Auth: {r.auth_number}
                   </AlertTitle>
                   <AlertDescription className="text-xs">
-                    {t('validUntil')}:{' '}
-                    {r.valid_until ? formatDate(r.valid_until, locale) : '--'}
-                    {' · '}
-                    {t('authorizedQty')}: {r.authorized_qty ?? '--'}
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <div>
+                        <span className="text-hcx-text-muted">{t('validUntil')}:</span>{' '}
+                        <span className="font-medium">
+                          {r.valid_until ? formatDate(r.valid_until, locale) : '--'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-hcx-text-muted">{t('authorizedQty')}:</span>{' '}
+                        <span className="font-medium">{r.authorized_qty ?? '--'}</span>
+                      </div>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+              {r.status === 'denied' && !r.auth_number && (
+                <Alert variant="destructive" className="mt-3">
+                  <XCircle className="size-4" />
+                  <AlertTitle>Pre-authorization Denied</AlertTitle>
+                  <AlertDescription className="text-xs">
+                    This request was not approved. You may submit a new request with additional clinical justification.
                   </AlertDescription>
                 </Alert>
               )}

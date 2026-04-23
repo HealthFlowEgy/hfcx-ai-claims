@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Menu, X } from 'lucide-react';
+import { LogOut, Menu, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,8 +39,12 @@ const ACCENT_BG: Record<PortalShellProps['portal']['accent'], string> = {
 export function PortalShell({ portal, nav, children }: PortalShellProps) {
   const pathname = usePathname();
   const t = useTranslations('common');
-  // ISSUE-052: Mobile navigation drawer state
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const handleLogout = () => {
+    // Redirect to Keycloak logout endpoint which clears the session
+    window.location.href = '/api/auth/logout';
+  };
 
   const navLinks = nav.map((item) => {
     const active =
@@ -77,7 +81,7 @@ export function PortalShell({ portal, nav, children }: PortalShellProps) {
       {/* Top bar */}
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-card px-4">
         <div className="flex items-center gap-3">
-          {/* ISSUE-052: Hamburger menu for mobile */}
+          {/* Hamburger menu for mobile */}
           <Button
             variant="ghost"
             size="icon"
@@ -124,10 +128,21 @@ export function PortalShell({ portal, nav, children }: PortalShellProps) {
           >
             {t('back')}
           </Link>
+          {/* Fix #2: Logout button accessible from all screens */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="gap-1.5 text-xs text-hcx-danger hover:bg-hcx-danger/10 hover:text-hcx-danger"
+            aria-label={t('logout')}
+          >
+            <LogOut className="size-3.5" aria-hidden />
+            <span className="hidden sm:inline">{t('logout')}</span>
+          </Button>
         </div>
       </header>
 
-      {/* ISSUE-052: Mobile navigation drawer overlay */}
+      {/* Mobile navigation drawer overlay */}
       {mobileNavOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/40 md:hidden"
@@ -136,7 +151,7 @@ export function PortalShell({ portal, nav, children }: PortalShellProps) {
         />
       )}
 
-      {/* ISSUE-052: Mobile navigation drawer */}
+      {/* Mobile navigation drawer */}
       <aside
         className={cn(
           'fixed inset-y-0 start-0 z-40 w-64 transform border-e border-border bg-card p-3 pt-16 transition-transform duration-200 md:hidden',

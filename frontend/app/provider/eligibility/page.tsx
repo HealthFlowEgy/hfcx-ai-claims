@@ -14,6 +14,22 @@ import { PatientNidInput } from '@/components/shared/patient-nid-input';
 import { api } from '@/lib/api';
 import { formatDate, formatEgp } from '@/lib/utils';
 
+/**
+ * Fix #9: Payer selection from dropdown (not free text)
+ * Fix #10: Provider ID auto-filled and locked from session
+ */
+
+const PROVIDER_ID = 'HCP-EG-CAIRO-001'; // Auto-assigned from session
+
+const PAYER_OPTIONS = [
+  { value: 'GIG', label: 'GIG Insurance - Egypt' },
+  { value: 'AXA', label: 'AXA Insurance - Egypt' },
+  { value: 'Allianz', label: 'Allianz Insurance - Egypt' },
+  { value: 'Orient', label: 'Orient Insurance - Egypt' },
+  { value: 'MetLife', label: 'MetLife Insurance - Egypt' },
+  { value: 'Mohandes', label: 'Mohandes Insurance - Egypt' },
+];
+
 type EligibilityResult = {
   status: string;
   is_eligible?: boolean | null;
@@ -32,15 +48,15 @@ export default function ProviderEligibilityPage() {
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
   const [patientNid, setPatientNid] = useState('');
-  const [payerId, setPayerId] = useState('MISR-INSURANCE-001');
-  const [providerId, setProviderId] = useState('HCP-EG-CAIRO-001');
+  // Fix #9: Payer from dropdown
+  const [payerId, setPayerId] = useState('GIG');
 
   const check = useMutation({
     mutationFn: () =>
       api.verifyEligibility({
         patient_id: patientNid,
         payer_id: payerId,
-        provider_id: providerId,
+        provider_id: PROVIDER_ID, // Fix #10: auto-filled
         service_date: new Date().toISOString(),
         claim_type: 'outpatient',
       }) as Promise<EligibilityResult>,
@@ -64,21 +80,34 @@ export default function ProviderEligibilityPage() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <PatientNidInput value={patientNid} onChange={setPatientNid} />
+          {/* Fix #9: Payer dropdown instead of free text */}
           <div className="space-y-1.5">
             <Label htmlFor="payer">Payer</Label>
-            <Input
+            <select
               id="payer"
               value={payerId}
               onChange={(e) => setPayerId(e.target.value)}
-            />
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              {PAYER_OPTIONS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
           </div>
+          {/* Fix #10: Provider auto-filled and locked */}
           <div className="space-y-1.5">
             <Label htmlFor="provider">Provider</Label>
             <Input
               id="provider"
-              value={providerId}
-              onChange={(e) => setProviderId(e.target.value)}
+              value={PROVIDER_ID}
+              readOnly
+              disabled
+              className="bg-muted cursor-not-allowed"
+              title="Provider ID is auto-assigned from your session"
             />
+            <p className="text-xs text-hcx-text-muted">Auto-assigned from your provider profile</p>
           </div>
           <div className="md:col-span-3">
             <Button

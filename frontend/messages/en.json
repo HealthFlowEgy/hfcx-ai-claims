@@ -92,7 +92,9 @@
     "partial": "Partial approval",
     "investigating": "Investigating",
     "settled": "Settled",
-    "voided": "Voided"
+    "voided": "Voided",
+    "pended": "Pended",
+    "under_ai_review": "Under AI Review"
   },
   "recommendation": {
     "approve": "Approve",

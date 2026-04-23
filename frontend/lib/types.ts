@@ -39,10 +39,12 @@ export type ClaimStatus =
   | 'ai_analyzed'
   | 'approved'
   | 'denied'
+  | 'pended'
   | 'partial'
   | 'investigating'
   | 'settled'
-  | 'voided';
+  | 'voided'
+  | 'under_ai_review';
 
 export interface EligibilityResult {
   status: AgentStatus;

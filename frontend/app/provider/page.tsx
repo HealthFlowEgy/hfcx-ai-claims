@@ -31,6 +31,7 @@ import { formatEgp, toArabicDigits } from '@/lib/utils';
 /**
  * SRS §4.2.1 — Provider Dashboard.
  * KPIs + recent claims + live denial alerts + status distribution donut.
+ * Fix #1: All dashboard cards fully clickable → redirect to respective modules.
  */
 
 const STATUS_COLORS: Record<string, string> = {
@@ -90,18 +91,20 @@ export default function ProviderDashboardPage() {
         <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
       </header>
 
-      {/* KPI row */}
+      {/* KPI row — Fix #1: All cards clickable */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label={t('claimsToday')}
           value={s.claims_today}
           icon={<FileStack className="size-5" />}
+          onClick={() => router.push('/provider/claims')}
         />
         <KpiCard
           label={t('pendingResponses')}
           value={s.pending_responses}
           icon={<Clock className="size-5" />}
           threshold={{ warn: 10, alert: 20, higherIsBad: true }}
+          onClick={() => router.push('/provider/claims')}
         />
         <KpiCard
           label={t('denialRate')}
@@ -112,11 +115,13 @@ export default function ProviderDashboardPage() {
           }%`}
           icon={<TrendingDown className="size-5" />}
           threshold={{ warn: 0.15, alert: 0.25, higherIsBad: true }}
+          onClick={() => router.push('/provider/denials')}
         />
         <KpiCard
           label={t('paymentsThisMonth')}
           value={formatEgp(s.payments_this_month_egp, locale)}
           icon={<Banknote className="size-5" />}
+          onClick={() => router.push('/provider/payments')}
         />
       </div>
 
@@ -187,8 +192,13 @@ export default function ProviderDashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Denial alerts — data-driven from /bff/claims */}
-        <Card className="lg:col-span-2">
+        {/* Denial alerts — clickable to denials page */}
+        <Card
+          className="cursor-pointer lg:col-span-2 hover:shadow-md transition-shadow"
+          onClick={() => router.push('/provider/denials')}
+          role="button"
+          tabIndex={0}
+        >
           <CardHeader>
             <CardTitle>{t('denialAlerts')}</CardTitle>
           </CardHeader>
@@ -210,7 +220,7 @@ export default function ProviderDashboardPage() {
         </Card>
       </div>
 
-      {/* Status distribution donut — SRS §4.2.1 */}
+      {/* Status distribution donut */}
       <Card>
         <CardHeader>
           <CardTitle>{t('claimStatusDistribution')}</CardTitle>

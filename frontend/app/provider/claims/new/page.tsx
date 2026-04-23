@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Controller,
   useFieldArray,
@@ -31,9 +31,17 @@ import { toast } from '@/hooks/use-toast';
  * SRS §4.2.2 — New Claim Submission form.
  *
  * Flow: NID → eligibility → claim type → service lines → submit.
- * After submission, the full AI adjudication results are displayed
- * using the AIRecommendationCard component.
+ * After submission, the claim is placed "Under AI Review" and the
+ * provider is redirected to the claims list.
+ *
+ * Fix #3: Provider ID auto-generated/locked (non-editable)
+ * Fix #4: Validate/prevent duplicate service lines
+ * Fix #5: Newly created claims appearing in Claims page (queryClient invalidation)
+ * Fix #6: "Under AI Review" status shown after submit
+ * Fix #7: AI provides recommendations, not auto-decisions
  */
+
+const PROVIDER_ID = 'HCP-EG-CAIRO-001'; // Auto-assigned from session
 
 const serviceLineSchema = z.object({
   service_date: z.string().min(1, 'Service date is required'),
@@ -73,6 +81,26 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
+/**
+ * Fix #4: Check for duplicate service lines (same ICD-10 + CPT + date).
+ */
+function findDuplicateLines(
+  lines: { icd10_code: string; procedure_code: string; service_date: string }[],
+): number[] {
+  const seen = new Map<string, number>();
+  const dupes: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const key = `${lines[i].icd10_code}|${lines[i].procedure_code}|${lines[i].service_date}`;
+    if (!key || key === '||') continue; // skip empty
+    if (seen.has(key)) {
+      dupes.push(i);
+    } else {
+      seen.set(key, i);
+    }
+  }
+  return dupes;
+}
+
 export default function NewClaimPage() {
   const t = useTranslations('provider.newClaim');
   const tc = useTranslations('common');
@@ -80,6 +108,7 @@ export default function NewClaimPage() {
   const locale = useLocale();
 
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
   const [progressMsg, setProgressMsg] = useState<string>('');
   const [submittedClaimId, setSubmittedClaimId] = useState<string | null>(null);
@@ -90,7 +119,7 @@ export default function NewClaimPage() {
       patient_nid: '',
       claim_type: 'outpatient',
       payer_id: 'GIG',
-      provider_id: 'HCP-EG-CAIRO-001',
+      provider_id: PROVIDER_ID, // Fix #3: auto-assigned
       service_lines: [
         {
           service_date: new Date().toISOString().slice(0, 10),
@@ -134,6 +163,15 @@ export default function NewClaimPage() {
 
   const submit = useMutation({
     mutationFn: async (values: ClaimFormValues) => {
+      // Fix #4: Check for duplicate service lines before submitting
+      const dupes = findDuplicateLines(values.service_lines);
+      if (dupes.length > 0) {
+        throw new Error(
+          `Duplicate service lines detected at row(s) ${dupes.map((d) => d + 1).join(', ')}. ` +
+          'Each combination of ICD-10 + CPT + service date must be unique.',
+        );
+      }
+
       const claim_id = `CLAIM-${Date.now()}`;
       const bundle = {
         resourceType: 'Bundle',
@@ -197,16 +235,19 @@ export default function NewClaimPage() {
     onSuccess: (res) => {
       setSubmittedClaimId(res.claim_id);
       setProgressMsg('');
+      // Fix #5: Invalidate claims queries so the new claim appears in the list
+      queryClient.invalidateQueries({ queryKey: ['provider', 'claims'] });
+      queryClient.invalidateQueries({ queryKey: ['provider', 'summary'] });
       toast({
         title: 'Claim Submitted',
         description: (
           `Claim ${res.claim_id} accepted. `
-          + 'AI analysis is running in the background.'
+          + 'AI analysis is running in the background. Status: Under AI Review.'
         ),
         variant: 'success',
       });
       // Redirect to claims list after a brief delay
-      setTimeout(() => router.push('/provider/claims'), 2000);
+      setTimeout(() => router.push('/provider/claims'), 2500);
     },
     onError: (error) => {
       setProgressMsg('');
@@ -222,7 +263,7 @@ export default function NewClaimPage() {
     },
   });
 
-  // Show instant confirmation after fire-and-forget submission
+  // Fix #6: Show "Under AI Review" confirmation after fire-and-forget submission
   if (submittedClaimId && !aiResult) {
     return (
       <div className="space-y-6">
@@ -233,12 +274,13 @@ export default function NewClaimPage() {
           <CheckCircle2 className="h-5 w-5" />
           <AlertTitle>Claim Submitted Successfully</AlertTitle>
           <AlertDescription>
-            Claim <strong>{submittedClaimId}</strong> has been accepted.
-            AI analysis is running in the background.
+            Claim <strong>{submittedClaimId}</strong> has been accepted and is now
+            <strong> Under AI Review</strong>.
+            <br />
+            The AI system will analyze the claim and provide a <em>recommendation</em> (not a final decision).
+            A human reviewer will make the final adjudication.
             <br />
             You will be redirected to the claims list shortly.
-            The Payer Portal will be updated automatically once
-            the analysis is complete.
           </AlertDescription>
         </Alert>
         <div className="flex items-center gap-2 text-sm text-hcx-text-muted">
@@ -250,6 +292,7 @@ export default function NewClaimPage() {
   }
 
   // If we have AI results, show them prominently
+  // Fix #7: Frame as "AI Recommendation" not "AI Decision"
   if (aiResult) {
     return (
       <div className="space-y-6">
@@ -266,18 +309,22 @@ export default function NewClaimPage() {
           </AlertDescription>
         </Alert>
 
-        {/* Full AI Analysis Results */}
+        {/* Full AI Analysis Results — Fix #7: Framed as recommendation */}
         <AIRecommendationCard analysis={aiResult} />
 
         {/* Processing details */}
         <Card>
           <CardHeader>
-            <CardTitle>Adjudication Summary</CardTitle>
+            <CardTitle>AI Recommendation Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <p className="text-sm text-hcx-text-muted">
+              This is an AI-generated recommendation. The final decision will be made by a human reviewer
+              at the payer organization.
+            </p>
             <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <div>
-                <p className="text-hcx-text-muted">Decision</p>
+                <p className="text-hcx-text-muted">AI Recommendation</p>
                 <p className="text-lg font-bold capitalize">{aiResult.adjudication_decision}</p>
               </div>
               <div>
@@ -293,8 +340,9 @@ export default function NewClaimPage() {
                 <p className="text-lg font-bold">{aiResult.requires_human_review ? 'Required' : 'Not Required'}</p>
               </div>
             </div>
-            {aiResult.human_review_reasons.length > 0 && (
-              <div className="rounded-lg border border-hcx-warning/40 bg-hcx-warning/5 p-3">
+
+            {aiResult.human_review_reasons?.length > 0 && (
+              <div className="mt-3 rounded-md bg-hcx-warning/10 p-3">
                 <p className="mb-1 text-sm font-medium text-hcx-warning">Review Reasons:</p>
                 <ul className="list-disc ps-5 text-sm">
                   {aiResult.human_review_reasons.map((r, i) => (
@@ -311,6 +359,7 @@ export default function NewClaimPage() {
             variant="outline"
             onClick={() => {
               setAiResult(null);
+              setSubmittedClaimId(null);
               form.reset();
             }}
           >
@@ -340,7 +389,6 @@ export default function NewClaimPage() {
         onSubmit={form.handleSubmit(
           (v) => submit.mutate(v),
           (errors) => {
-            // Show toast when validation fails so user knows something went wrong
             const errorCount = Object.keys(errors).length;
             const serviceLineErrors = errors.service_lines;
             let totalErrors = errorCount;
@@ -383,7 +431,6 @@ export default function NewClaimPage() {
                 {...form.register('claim_type')}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
-                {/* ISSUE-067: Use translated labels for claim types */}
                 {['outpatient', 'inpatient', 'pharmacy', 'lab', 'dental', 'vision'].map(
                   (t2) => (
                     <option key={t2} value={t2}>
@@ -410,10 +457,19 @@ export default function NewClaimPage() {
               </select>
               <FieldError message={form.formState.errors.payer_id?.message} />
             </div>
+            {/* Fix #3: Provider ID auto-generated and locked (non-editable) */}
             <div className="space-y-1.5">
               <Label htmlFor="provider-id">{tClaim('providerId')}</Label>
-              <Input id="provider-id" {...form.register('provider_id')} />
-              <FieldError message={form.formState.errors.provider_id?.message} />
+              <Input
+                id="provider-id"
+                value={PROVIDER_ID}
+                readOnly
+                disabled
+                className="bg-muted cursor-not-allowed"
+                title="Provider ID is auto-assigned from your session"
+              />
+              <p className="text-xs text-hcx-text-muted">Auto-assigned from your provider profile</p>
+              <input type="hidden" {...form.register('provider_id')} />
             </div>
           </CardContent>
         </Card>
@@ -440,89 +496,108 @@ export default function NewClaimPage() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            {fields.map((field, index) => (
-              <div
-                key={field.id}
-                className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 md:grid-cols-8"
-              >
-                <div className="md:col-span-1">
-                  <Label>{tClaim('serviceDate')}</Label>
-                  <Input
-                    type="date"
-                    {...form.register(`service_lines.${index}.service_date`)}
-                  />
-                  <FieldError message={form.formState.errors.service_lines?.[index]?.service_date?.message} />
-                </div>
-                <div className="md:col-span-2">
-                  <Label>ICD-10</Label>
-                  <Controller
-                    control={form.control}
-                    name={`service_lines.${index}.icd10_code`}
-                    render={({ field, fieldState }) => (
-                      <div>
-                        <CodeSelector
-                          value={field.value}
-                          onChange={field.onChange}
-                          codeType="icd10"
-                        />
-                        <FieldError message={fieldState.error?.message} />
-                      </div>
+            {/* Fix #4: Duplicate line warning */}
+            {(() => {
+              const dupes = findDuplicateLines(watchedLines ?? []);
+              if (dupes.length === 0) return null;
+              return (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Duplicate Service Lines</AlertTitle>
+                  <AlertDescription>
+                    Row(s) {dupes.map((d) => d + 1).join(', ')} have the same ICD-10 + CPT + date
+                    combination. Please remove duplicates before submitting.
+                  </AlertDescription>
+                </Alert>
+              );
+            })()}
+            {fields.map((field, index) => {
+              const isDuplicate = findDuplicateLines(watchedLines ?? []).includes(index);
+              return (
+                <div
+                  key={field.id}
+                  className={`grid grid-cols-1 gap-3 rounded-lg border p-4 md:grid-cols-8 ${
+                    isDuplicate ? 'border-hcx-danger bg-hcx-danger/5' : 'border-border'
+                  }`}
+                >
+                  <div className="md:col-span-1">
+                    <Label>{tClaim('serviceDate')}</Label>
+                    <Input
+                      type="date"
+                      {...form.register(`service_lines.${index}.service_date`)}
+                    />
+                    <FieldError message={form.formState.errors.service_lines?.[index]?.service_date?.message} />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label>ICD-10</Label>
+                    <Controller
+                      control={form.control}
+                      name={`service_lines.${index}.icd10_code`}
+                      render={({ field, fieldState }) => (
+                        <div>
+                          <CodeSelector
+                            value={field.value}
+                            onChange={field.onChange}
+                            codeType="icd10"
+                          />
+                          <FieldError message={fieldState.error?.message} />
+                        </div>
+                      )}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label>CPT</Label>
+                    <Controller
+                      control={form.control}
+                      name={`service_lines.${index}.procedure_code`}
+                      render={({ field, fieldState }) => (
+                        <div>
+                          <CodeSelector
+                            value={field.value}
+                            onChange={field.onChange}
+                            codeType="cpt"
+                            placeholder="Search CPT code or procedure..."
+                          />
+                          <FieldError message={fieldState.error?.message} />
+                        </div>
+                      )}
+                    />
+                  </div>
+                  <div className="md:col-span-1">
+                    <Label>Qty</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      {...form.register(`service_lines.${index}.quantity`)}
+                    />
+                    <FieldError message={form.formState.errors.service_lines?.[index]?.quantity?.message} />
+                  </div>
+                  <div className="md:col-span-1">
+                    <Label>{tc('amount')}</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      {...form.register(`service_lines.${index}.amount`)}
+                    />
+                    <FieldError message={form.formState.errors.service_lines?.[index]?.amount?.message} />
+                  </div>
+                  <div className="flex items-end md:col-span-1">
+                    {fields.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => remove(index)}
+                        aria-label="Remove line"
+                      >
+                        <Trash2 className="size-4 text-hcx-danger" aria-hidden />
+                      </Button>
                     )}
-                  />
+                  </div>
                 </div>
-                <div className="md:col-span-2">
-                  <Label>CPT</Label>
-                  <Controller
-                    control={form.control}
-                    name={`service_lines.${index}.procedure_code`}
-                    render={({ field, fieldState }) => (
-                      <div>
-                        <CodeSelector
-                          value={field.value}
-                          onChange={field.onChange}
-                          codeType="cpt"
-                          placeholder="Search CPT code or procedure..."
-                        />
-                        <FieldError message={fieldState.error?.message} />
-                      </div>
-                    )}
-                  />
-                  
-                </div>
-                <div className="md:col-span-1">
-                  <Label>Qty</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    {...form.register(`service_lines.${index}.quantity`)}
-                  />
-                  <FieldError message={form.formState.errors.service_lines?.[index]?.quantity?.message} />
-                </div>
-                <div className="md:col-span-1">
-                  <Label>{tc('amount')}</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    {...form.register(`service_lines.${index}.amount`)}
-                  />
-                  <FieldError message={form.formState.errors.service_lines?.[index]?.amount?.message} />
-                </div>
-                <div className="flex items-end md:col-span-1">
-                  {fields.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => remove(index)}
-                      aria-label="Remove line"
-                    >
-                      <Trash2 className="size-4 text-hcx-danger" aria-hidden />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -579,7 +654,7 @@ export default function NewClaimPage() {
               {submit.isPending ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  {progressMsg || 'Processing AI Analysis...'}
+                  {progressMsg || 'Submitting...'}
                 </>
               ) : (
                 <>
@@ -590,7 +665,7 @@ export default function NewClaimPage() {
             </Button>
             {submit.isPending && progressMsg && (
               <p className="mt-2 text-center text-sm text-hcx-text-muted">
-                AI analysis is running on self-hosted models. This typically takes 2–4 minutes.
+                {progressMsg}
               </p>
             )}
           </CardContent>

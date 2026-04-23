@@ -92,7 +92,8 @@
     "partial": "موافقة جزئية",
     "investigating": "قيد التحقيق",
     "settled": "تم التسوية",
-    "voided": "ملغى"
+    "voided": "ملغى",
+    "under_ai_review": "قيد مراجعة الذكاء الاصطناعي"
   },
   "recommendation": {
     "approve": "موافقة",

@@ -32,6 +32,8 @@ const STATUS_STYLES: Record<ClaimStatus, { classes: string; Icon: React.Componen
   voided: { classes: 'badge-voided', Icon: Ban },
   // ISSUE-007: Add partial status
   partial: { classes: 'badge-in-review', Icon: SplitSquareHorizontal },
+  pended: { classes: 'badge-in-review', Icon: Clock },
+  under_ai_review: { classes: 'badge-ai-analyzed', Icon: Brain },
 };
 
 export interface ClaimStatusBadgeProps {

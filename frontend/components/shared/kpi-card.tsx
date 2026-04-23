@@ -8,7 +8,7 @@ import { cn, toArabicDigits } from '@/lib/utils';
 
 /**
  * Reusable KPI metric card used by every portal dashboard.
- * Supports optional trend direction and a threshold alert state.
+ * Supports optional trend direction, threshold alert state, and click navigation.
  */
 export interface KpiCardProps {
   label: string;
@@ -18,6 +18,8 @@ export interface KpiCardProps {
   className?: string;
   icon?: React.ReactNode;
   sublabel?: string;
+  /** If provided, the card becomes clickable and navigates to this path */
+  onClick?: () => void;
 }
 
 export function KpiCard({
@@ -28,6 +30,7 @@ export function KpiCard({
   className,
   icon,
   sublabel,
+  onClick,
 }: KpiCardProps) {
   const locale = useLocale();
   const displayValue =
@@ -54,7 +57,18 @@ export function KpiCard({
       : 'border-border';
 
   return (
-    <Card className={cn('transition-colors', stateBorder, className)}>
+    <Card
+      className={cn(
+        'transition-colors',
+        stateBorder,
+        onClick && 'cursor-pointer hover:shadow-md hover:border-hcx-primary/40',
+        className,
+      )}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
       <CardContent className="flex items-start justify-between gap-3 p-4">
         <div className="space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-hcx-text-muted">

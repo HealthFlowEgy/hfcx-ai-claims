@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { Bell, Loader2, X } from 'lucide-react';
+import { Bell, CheckSquare, Loader2, X } from 'lucide-react';
 import { useClaimUpdates } from '@/hooks/use-claim-updates';
 import { toast } from '@/hooks/use-toast';
 
@@ -20,16 +20,17 @@ import { cn } from '@/lib/utils';
 /**
  * SRS §5.2.1 — Payer Claims Queue (Kanban + detail panel).
  *
- * 80%+ of reviewer time lives here. Four columns map to the core
- * workflow states; clicking a card opens a right-side detail panel
- * with the AI analysis results and the decision form.
+ * Fix #25: AI confidence score visible in claim cards and detail panel
+ * Fix #26: Override with mandatory reason when disagreeing with AI
+ * Fix #27: Batch operations (approve/deny multiple claims)
+ * Fix #28: Claim history in detail panel
  */
 
 const COLUMN_STATUSES: Record<string, ClaimStatus[]> = {
   new: ['submitted'],
   ai: ['ai_analyzed'],
   pending: ['in_review'],
-  done: ['approved', 'denied', 'settled'],
+  done: ['approved', 'denied', 'partial', 'settled'],
 };
 
 function isToday(iso: string | null): boolean {
@@ -50,22 +51,21 @@ export default function PayerClaimsQueuePage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [liveCount, setLiveCount] = useState(0);
+  // Fix #27: Batch selection
+  const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
+  const [batchMode, setBatchMode] = useState(false);
 
-  // Real-time SSE: auto-refresh claims queue when AI finishes
   useClaimUpdates((event) => {
     if (event.status === 'completed' || event.status === 'failed') {
-      // Invalidate the claims query so the Kanban refreshes
       queryClient.invalidateQueries({ queryKey: ['payer', 'claims'] });
       setLiveCount((c) => c + 1);
-
       const decision = event.decision ?? 'unknown';
       toast({
         title: `Claim ${event.claim_id} — AI ${decision}`,
-        description: (
+        description:
           event.status === 'completed'
             ? `AI adjudication complete (${decision}).`
-            : `AI processing failed: ${event.error ?? 'unknown error'}`
-        ),
+            : `AI processing failed: ${event.error ?? 'unknown error'}`,
         variant: event.status === 'completed' ? 'success' : 'destructive',
       });
     }
@@ -73,8 +73,8 @@ export default function PayerClaimsQueuePage() {
 
   const { data } = useQuery({
     queryKey: ['payer', 'claims'],
-    queryFn: () =>
-      api.listClaims({ portal: 'payer', limit: 200 }),
+    queryFn: () => api.listClaims({ portal: 'payer', limit: 200 }),
+    refetchInterval: 30_000,
   });
 
   const columns = useMemo(() => {
@@ -83,7 +83,6 @@ export default function PayerClaimsQueuePage() {
       new: items.filter((c) => COLUMN_STATUSES.new.includes(c.status)),
       ai: items.filter((c) => COLUMN_STATUSES.ai.includes(c.status)),
       pending: items.filter((c) => COLUMN_STATUSES.pending.includes(c.status)),
-      // Fix: only show claims decided TODAY in the "Completed Today" column.
       done: items.filter(
         (c) =>
           COLUMN_STATUSES.done.includes(c.status) && isToday(c.decided_at),
@@ -95,6 +94,43 @@ export default function PayerClaimsQueuePage() {
     if (!selected) return null;
     return (data?.items ?? []).find((c) => c.claim_id === selected) ?? null;
   }, [selected, data]);
+
+  // Fix #27: Batch toggle
+  const toggleBatch = (claimId: string) => {
+    setBatchSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(claimId)) next.delete(claimId);
+      else next.add(claimId);
+      return next;
+    });
+  };
+
+  // Fix #27: Batch approve/deny
+  const batchMutation = useMutation({
+    mutationFn: async (decision: 'approved' | 'denied') => {
+      const promises = Array.from(batchSelected).map((claimId) => {
+        const claim = (data?.items ?? []).find((c) => c.claim_id === claimId);
+        if (!claim) return Promise.resolve();
+        return api.submitFeedback({
+          correlation_id: claim.correlation_id,
+          ai_decision: claim.ai_recommendation ?? 'pended',
+          human_decision: decision,
+          ai_score: claim.ai_risk_score ?? undefined,
+        });
+      });
+      return Promise.all(promises);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payer', 'claims'] });
+      setBatchSelected(new Set());
+      setBatchMode(false);
+      toast({
+        title: 'Batch Decision Submitted',
+        description: `${batchSelected.size} claims processed.`,
+        variant: 'success',
+      });
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -108,13 +144,47 @@ export default function PayerClaimsQueuePage() {
             </span>
           )}
         </div>
-        <span className="flex items-center gap-1.5 text-xs text-hcx-text-muted">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-hcx-success opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-hcx-success" />
+        <div className="flex items-center gap-2">
+          {/* Fix #27: Batch mode toggle */}
+          <Button
+            variant={batchMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setBatchMode(!batchMode);
+              if (batchMode) setBatchSelected(new Set());
+            }}
+          >
+            <CheckSquare className="size-4" />
+            {batchMode ? `Batch (${batchSelected.size})` : 'Batch Mode'}
+          </Button>
+          {batchMode && batchSelected.size > 0 && (
+            <>
+              <Button
+                variant="success"
+                size="sm"
+                onClick={() => batchMutation.mutate('approved')}
+                disabled={batchMutation.isPending}
+              >
+                Approve ({batchSelected.size})
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => batchMutation.mutate('denied')}
+                disabled={batchMutation.isPending}
+              >
+                Deny ({batchSelected.size})
+              </Button>
+            </>
+          )}
+          <span className="flex items-center gap-1.5 text-xs text-hcx-text-muted">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-hcx-success opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-hcx-success" />
+            </span>
+            Live
           </span>
-          Live
-        </span>
+        </div>
       </header>
 
       <div
@@ -129,34 +199,42 @@ export default function PayerClaimsQueuePage() {
             title={t('new')}
             items={columns.new}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={batchMode ? toggleBatch : setSelected}
             accent="border-hcx-primary/40"
+            batchMode={batchMode}
+            batchSelected={batchSelected}
           />
           <KanbanColumn
             title={t('aiReviewed')}
             items={columns.ai}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={batchMode ? toggleBatch : setSelected}
             accent="border-hcx-primary/60"
+            batchMode={batchMode}
+            batchSelected={batchSelected}
           />
           <KanbanColumn
             title={t('pendingDecision')}
             items={columns.pending}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={batchMode ? toggleBatch : setSelected}
             accent="border-hcx-warning/60"
+            batchMode={batchMode}
+            batchSelected={batchSelected}
           />
           <KanbanColumn
             title={t('completedToday')}
             items={columns.done}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={batchMode ? toggleBatch : setSelected}
             accent="border-hcx-success/60"
+            batchMode={batchMode}
+            batchSelected={batchSelected}
           />
         </div>
 
         {/* Detail panel */}
-        {selected && selectedClaim && (
+        {selected && selectedClaim && !batchMode && (
           <Card className="h-fit">
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
               <div>
@@ -168,6 +246,21 @@ export default function PayerClaimsQueuePage() {
                   <span className="text-xs text-hcx-text-muted">
                     {selectedClaim.provider_id}
                   </span>
+                  {/* Fix #25: AI confidence score visible */}
+                  {selectedClaim.ai_risk_score != null && (
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-xs font-semibold',
+                        selectedClaim.ai_risk_score > 0.7
+                          ? 'bg-hcx-danger/10 text-hcx-danger'
+                          : selectedClaim.ai_risk_score > 0.4
+                            ? 'bg-hcx-warning/10 text-hcx-warning'
+                            : 'bg-hcx-success/10 text-hcx-success',
+                      )}
+                    >
+                      AI Confidence: {((1 - selectedClaim.ai_risk_score) * 100).toFixed(0)}%
+                    </span>
+                  )}
                 </div>
               </div>
               <Button
@@ -186,7 +279,12 @@ export default function PayerClaimsQueuePage() {
 
               <Separator />
 
-              {/* Decision Panel */}
+              {/* Fix #28: Claim history */}
+              <ClaimHistory claim={selectedClaim} />
+
+              <Separator />
+
+              {/* Decision Panel — Fix #26: Override with reason */}
               <DecisionPanel
                 claim={selectedClaim}
                 onSubmitted={() => setSelected(null)}
@@ -205,12 +303,16 @@ function KanbanColumn({
   selected,
   onSelect,
   accent,
+  batchMode,
+  batchSelected,
 }: {
   title: string;
   items: ClaimSummary[];
   selected: string | null;
   onSelect: (id: string) => void;
   accent: string;
+  batchMode?: boolean;
+  batchSelected?: Set<string>;
 }) {
   return (
     <div
@@ -227,22 +329,64 @@ function KanbanColumn({
       </div>
       <div className="space-y-2">
         {items.map((c) => (
-          <ClaimCard
-            key={c.claim_id}
-            claim={c}
-            active={selected === c.claim_id}
-            onClick={() => onSelect(c.claim_id)}
-          />
+          <div key={c.claim_id} className="relative">
+            {batchMode && (
+              <div className="absolute top-2 left-2 z-10">
+                <input
+                  type="checkbox"
+                  checked={batchSelected?.has(c.claim_id) ?? false}
+                  onChange={() => onSelect(c.claim_id)}
+                  className="size-4"
+                />
+              </div>
+            )}
+            <ClaimCard
+              claim={c}
+              active={selected === c.claim_id || (batchSelected?.has(c.claim_id) ?? false)}
+              onClick={() => onSelect(c.claim_id)}
+            />
+          </div>
         ))}
       </div>
     </div>
   );
 }
 
-/**
- * Fetches and displays the full AI adjudication analysis for a selected claim.
- * Uses the claim's correlation_id to re-run the coordinate endpoint.
- */
+/** Fix #28: Claim history timeline */
+function ClaimHistory({ claim }: { claim: ClaimSummary }) {
+  const events = [
+    { label: 'Submitted', date: claim.submitted_at, status: 'submitted' },
+    ...(claim.status !== 'submitted'
+      ? [{ label: 'AI Analysis Complete', date: claim.submitted_at, status: 'ai_analyzed' }]
+      : []),
+    ...(claim.decided_at
+      ? [{ label: `Decision: ${claim.status}`, date: claim.decided_at, status: claim.status }]
+      : []),
+  ];
+
+  return (
+    <div>
+      <p className="text-sm font-semibold mb-2">Claim Timeline</p>
+      <div className="space-y-2">
+        {events.map((e, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="flex flex-col items-center">
+              <div className="size-2.5 rounded-full bg-hcx-primary" />
+              {i < events.length - 1 && <div className="h-4 w-0.5 bg-border" />}
+            </div>
+            <div className="flex-1 flex items-center justify-between">
+              <span className="text-xs font-medium">{e.label}</span>
+              <span className="text-xs text-hcx-text-muted">
+                {new Date(e.date).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
   const t = useTranslations('ai');
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
@@ -253,7 +397,6 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
     setLoading(true);
     setError(null);
     try {
-      // Build a minimal FHIR bundle from the claim summary for re-analysis
       const bundle = {
         resourceType: 'Bundle',
         type: 'collection',
@@ -295,7 +438,6 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
 
   return (
     <div className="space-y-3">
-      {/* Show existing AI summary from the claim list */}
       {claim.ai_recommendation && (
         <div className="rounded-lg border border-hcx-primary/20 bg-hcx-primary-light/30 p-3">
           <div className="flex items-center justify-between">
@@ -304,11 +446,12 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
               {claim.ai_recommendation}
             </span>
           </div>
+          {/* Fix #25: AI confidence score visible */}
           {claim.ai_risk_score != null && (
             <div className="mt-2">
               <div className="flex items-center justify-between text-xs text-hcx-text-muted">
                 <span>Risk Score</span>
-                <span>{(claim.ai_risk_score * 100).toFixed(0)}%</span>
+                <span className="font-semibold">{(claim.ai_risk_score * 100).toFixed(0)}%</span>
               </div>
               <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
@@ -317,18 +460,20 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
                     claim.ai_risk_score > 0.7
                       ? 'bg-hcx-danger'
                       : claim.ai_risk_score > 0.4
-                      ? 'bg-hcx-warning'
-                      : 'bg-hcx-success',
+                        ? 'bg-hcx-warning'
+                        : 'bg-hcx-success',
                   )}
                   style={{ width: `${claim.ai_risk_score * 100}%` }}
                 />
               </div>
+              <p className="mt-1 text-[10px] text-hcx-text-muted italic">
+                This is an AI-generated recommendation. Final decision is made by a human reviewer.
+              </p>
             </div>
           )}
         </div>
       )}
 
-      {/* Run full AI analysis button */}
       <Button
         variant="outline"
         className="w-full"
@@ -356,6 +501,10 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
 
 type Decision = 'approve' | 'deny' | 'escalate';
 
+/**
+ * Fix #26: Decision panel with mandatory override reason when
+ * disagreeing with AI recommendation.
+ */
 function DecisionPanel({
   claim,
   onSubmitted,
@@ -367,27 +516,48 @@ function DecisionPanel({
   const queryClient = useQueryClient();
   const [decision, setDecision] = useState<Decision | null>(null);
   const [notes, setNotes] = useState('');
+  const [overrideReason, setOverrideReason] = useState('');
+
+  // Fix #26: Check if human disagrees with AI
+  const aiRecommendation = claim.ai_recommendation;
+  const isOverride = useMemo(() => {
+    if (!decision || !aiRecommendation) return false;
+    const aiDecision =
+      aiRecommendation === 'approved'
+        ? 'approve'
+        : aiRecommendation === 'denied'
+          ? 'deny'
+          : null;
+    return aiDecision !== null && aiDecision !== decision;
+  }, [decision, aiRecommendation]);
 
   const submit = useMutation({
     mutationFn: async () => {
       if (!decision) return null;
+      // Fix #26: Require override reason
+      if (isOverride && !overrideReason.trim()) {
+        throw new Error('Override reason is required when disagreeing with AI recommendation.');
+      }
       const humanDecision =
         decision === 'approve'
           ? 'approved'
           : decision === 'deny'
-          ? 'denied'
-          : 'investigating';
+            ? 'denied'
+            : 'investigating';
       return api.submitFeedback({
         correlation_id: claim.correlation_id,
         ai_decision: claim.ai_recommendation ?? 'pended',
         human_decision: humanDecision,
         ai_score: claim.ai_risk_score ?? undefined,
+        override_reason: isOverride ? overrideReason : undefined,
+        notes: notes || undefined,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payer', 'claims'] });
       setDecision(null);
       setNotes('');
+      setOverrideReason('');
       onSubmitted();
     },
   });
@@ -417,8 +587,26 @@ function DecisionPanel({
           {t('escalate')}
         </Button>
       </div>
+
+      {/* Fix #26: Override reason when disagreeing with AI */}
+      {isOverride && (
+        <div className="rounded-md border border-hcx-warning/50 bg-hcx-warning/5 p-3">
+          <p className="text-xs font-semibold text-hcx-warning mb-1">
+            You are overriding the AI recommendation ({aiRecommendation}). Please provide a reason:
+          </p>
+          <textarea
+            rows={2}
+            placeholder="Mandatory: Explain why you disagree with the AI recommendation..."
+            value={overrideReason}
+            onChange={(e) => setOverrideReason(e.target.value)}
+            className="w-full rounded-md border border-hcx-warning/30 bg-background p-2 text-sm"
+            required
+          />
+        </div>
+      )}
+
       <textarea
-        rows={3}
+        rows={2}
         placeholder={t('notes')}
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
@@ -431,11 +619,11 @@ function DecisionPanel({
       )}
       <Button
         className="w-full"
-        disabled={!decision || submit.isPending}
+        disabled={!decision || submit.isPending || (isOverride && !overrideReason.trim())}
         onClick={() => submit.mutate()}
         aria-busy={submit.isPending}
       >
-        {submit.isPending ? '…' : t('submitDecision')}
+        {submit.isPending ? '...' : t('submitDecision')}
       </Button>
     </div>
   );

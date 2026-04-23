@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
+import { Eye, X } from 'lucide-react';
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -13,10 +14,18 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable } from '@/components/shared/data-table';
+import { Separator } from '@/components/ui/separator';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+/**
+ * Fix #39: Drill-down into individual insurer details
+ * Fix #40: Side-by-side comparison (already had radar, enhanced)
+ * Fix #41: Compliance score column with color coding
+ */
 
 type Row = {
   name: string;
@@ -28,10 +37,6 @@ type Row = {
   ai_accuracy: number;
 };
 
-/**
- * SRS §7.2.2 FR-RD-INS-001..003 — ranked insurer comparison with a
- * radar chart overlay for up to 3 selected insurers.
- */
 export default function RegulatoryInsurersPage() {
   const t = useTranslations('regulatory.insurers');
   const { data } = useQuery({
@@ -40,6 +45,7 @@ export default function RegulatoryInsurersPage() {
   });
   const rows = useMemo(() => data ?? [], [data]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [drillDown, setDrillDown] = useState<Row | null>(null);
 
   const toggle = useCallback((name: string) => {
     setSelected((prev) => {
@@ -49,6 +55,26 @@ export default function RegulatoryInsurersPage() {
       return next;
     });
   }, []);
+
+  // Fix #41: Compute compliance score (0-100) based on key metrics
+  const complianceScore = (r: Row): number => {
+    let score = 100;
+    // Penalize high denial rate (>20% = -20pts)
+    if (r.denial_rate > 0.2) score -= 20;
+    else if (r.denial_rate > 0.15) score -= 10;
+    // Penalize high loss ratio (>90% = -15pts)
+    if (r.loss_ratio > 0.9) score -= 15;
+    else if (r.loss_ratio > 0.7) score -= 8;
+    // Penalize slow processing (>30d = -15pts)
+    if (r.processing_time_days > 30) score -= 15;
+    else if (r.processing_time_days > 20) score -= 8;
+    // Penalize high fraud rate (>5% = -20pts)
+    if (r.fraud_rate > 0.05) score -= 20;
+    else if (r.fraud_rate > 0.02) score -= 10;
+    // Reward high AI accuracy
+    if (r.ai_accuracy >= 0.95) score += 5;
+    return Math.max(0, Math.min(100, score));
+  };
 
   const radarData = useMemo(() => {
     const pick = rows.filter((r) => selected.has(r.name));
@@ -60,7 +86,6 @@ export default function RegulatoryInsurersPage() {
       { dim: t('fraudRate'), key: 'fraud_rate' },
       { dim: t('aiAccuracy'), key: 'ai_accuracy' },
     ];
-    // Normalize each metric to 0-100 for the radar axis.
     const max: Record<string, number> = {};
     for (const d of dims) {
       max[d.key] = Math.max(
@@ -137,6 +162,49 @@ export default function RegulatoryInsurersPage() {
         meta: { numeric: true },
         cell: ({ row }) => `${(row.original.ai_accuracy * 100).toFixed(0)}%`,
       },
+      {
+        // Fix #41: Compliance score column
+        header: 'Compliance',
+        id: 'compliance',
+        cell: ({ row }) => {
+          const score = complianceScore(row.original);
+          return (
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-12 rounded-full bg-muted">
+                <div
+                  className={cn(
+                    'h-2 rounded-full',
+                    score >= 80 ? 'bg-hcx-success' : score >= 60 ? 'bg-hcx-warning' : 'bg-hcx-danger',
+                  )}
+                  style={{ width: `${score}%` }}
+                />
+              </div>
+              <span
+                className={cn(
+                  'text-xs font-semibold',
+                  score >= 80 ? 'text-hcx-success' : score >= 60 ? 'text-hcx-warning' : 'text-hcx-danger',
+                )}
+              >
+                {score}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        // Fix #39: Drill-down action
+        header: '',
+        id: 'actions',
+        cell: ({ row }) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setDrillDown(row.original)}
+          >
+            <Eye className="size-3" />
+          </Button>
+        ),
+      },
     ],
     [selected, t, toggle],
   );
@@ -154,19 +222,94 @@ export default function RegulatoryInsurersPage() {
         <p className="text-sm text-hcx-text-muted">{t('intro')}</p>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('title')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DataTable columns={columns} data={rows} />
-        </CardContent>
-      </Card>
+      <div className={cn('grid gap-4', drillDown ? 'grid-cols-1 lg:grid-cols-[2fr_1fr]' : 'grid-cols-1')}>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('title')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DataTable columns={columns} data={rows} />
+          </CardContent>
+        </Card>
 
+        {/* Fix #39: Drill-down panel */}
+        {drillDown && (
+          <Card className="h-fit">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">{drillDown.name}</CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => setDrillDown(null)}>
+                <X className="size-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-xs text-hcx-text-muted">Claims Volume</span>
+                  <p className="font-bold">{drillDown.claims_volume.toLocaleString()}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-hcx-text-muted">Loss Ratio</span>
+                  <p className="font-bold">{(drillDown.loss_ratio * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <span className="text-xs text-hcx-text-muted">Denial Rate</span>
+                  <p className={cn('font-bold', drillDown.denial_rate > 0.2 ? 'text-hcx-danger' : 'text-hcx-success')}>
+                    {(drillDown.denial_rate * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-hcx-text-muted">Processing Time</span>
+                  <p className="font-bold">{drillDown.processing_time_days.toFixed(1)}d</p>
+                </div>
+                <div>
+                  <span className="text-xs text-hcx-text-muted">Fraud Rate</span>
+                  <p className="font-bold">{(drillDown.fraud_rate * 100).toFixed(2)}%</p>
+                </div>
+                <div>
+                  <span className="text-xs text-hcx-text-muted">AI Accuracy</span>
+                  <p className="font-bold">{(drillDown.ai_accuracy * 100).toFixed(0)}%</p>
+                </div>
+              </div>
+              <Separator />
+              <div>
+                <span className="text-xs text-hcx-text-muted">Compliance Score</span>
+                <div className="flex items-center gap-2 mt-1">
+                  {(() => {
+                    const score = complianceScore(drillDown);
+                    return (
+                      <>
+                        <div className="h-3 flex-1 rounded-full bg-muted">
+                          <div
+                            className={cn(
+                              'h-3 rounded-full',
+                              score >= 80 ? 'bg-hcx-success' : score >= 60 ? 'bg-hcx-warning' : 'bg-hcx-danger',
+                            )}
+                            style={{ width: `${score}%` }}
+                          />
+                        </div>
+                        <span className={cn(
+                          'text-lg font-bold',
+                          score >= 80 ? 'text-hcx-success' : score >= 60 ? 'text-hcx-warning' : 'text-hcx-danger',
+                        )}>
+                          {score}/100
+                        </span>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Fix #40: Enhanced comparison radar chart */}
       {selected.size > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>{t('radarTitle')}</CardTitle>
+            <CardTitle>
+              {t('radarTitle')} ({selected.size} selected)
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={320}>
@@ -186,6 +329,9 @@ export default function RegulatoryInsurersPage() {
                 ))}
               </RadarChart>
             </ResponsiveContainer>
+            <p className="mt-1 text-[10px] text-hcx-text-muted italic text-center">
+              Select up to 3 insurers from the table above to compare side-by-side.
+            </p>
           </CardContent>
         </Card>
       )}

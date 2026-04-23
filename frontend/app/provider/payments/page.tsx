@@ -1,17 +1,23 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Banknote, CheckCircle2, Clock } from 'lucide-react';
+import { Banknote, CheckCircle2, Clock, Filter } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable } from '@/components/shared/data-table';
 import { KpiCard } from '@/components/shared/kpi-card';
 import { api } from '@/lib/api';
 import { formatDate, formatEgp } from '@/lib/utils';
+
+/**
+ * Fix #20: Enhanced reconciliation status with visual indicators,
+ * filter by reconciliation status, and payment method breakdown.
+ */
 
 type Payment = {
   payment_ref: string;
@@ -26,6 +32,7 @@ export default function ProviderPaymentsPage() {
   const t = useTranslations('provider.payments');
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
+  const [reconFilter, setReconFilter] = useState<'all' | 'reconciled' | 'unreconciled'>('all');
 
   const { data, isLoading } = useQuery({
     queryKey: ['provider', 'payments'],
@@ -37,12 +44,28 @@ export default function ProviderPaymentsPage() {
     [data],
   );
 
+  // Fix #20: Filter by reconciliation status
+  const filteredPayments = useMemo(() => {
+    if (reconFilter === 'all') return payments;
+    return payments.filter((p) =>
+      reconFilter === 'reconciled' ? p.reconciled : !p.reconciled,
+    );
+  }, [payments, reconFilter]);
+
   const total = useMemo(
     () => payments.reduce((s, p) => s + p.settled_amount, 0),
     [payments],
   );
-  const reconciled = useMemo(
+  const reconciledCount = useMemo(
     () => payments.filter((p) => p.reconciled).length,
+    [payments],
+  );
+  const reconciledAmount = useMemo(
+    () => payments.filter((p) => p.reconciled).reduce((s, p) => s + p.settled_amount, 0),
+    [payments],
+  );
+  const unreconciledAmount = useMemo(
+    () => payments.filter((p) => !p.reconciled).reduce((s, p) => s + p.settled_amount, 0),
     [payments],
   );
 
@@ -79,9 +102,15 @@ export default function ProviderPaymentsPage() {
         accessorKey: 'reconciled',
         cell: ({ row }) =>
           row.original.reconciled ? (
-            <Badge variant="success">{t('reconciled')}</Badge>
+            <Badge variant="success" className="gap-1">
+              <CheckCircle2 className="size-3" />
+              {t('reconciled')}
+            </Badge>
           ) : (
-            <Badge variant="warning">{t('unreconciled')}</Badge>
+            <Badge variant="warning" className="gap-1">
+              <Clock className="size-3" />
+              {t('unreconciled')}
+            </Badge>
           ),
       },
     ],
@@ -103,7 +132,7 @@ export default function ProviderPaymentsPage() {
         <p className="text-sm text-hcx-text-muted">{t('intro')}</p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <KpiCard
           label={tc('total')}
           value={formatEgp(total, locale)}
@@ -111,14 +140,37 @@ export default function ProviderPaymentsPage() {
         />
         <KpiCard
           label={t('reconciled')}
-          value={reconciled}
+          value={`${reconciledCount} (${formatEgp(reconciledAmount, locale)})`}
           icon={<CheckCircle2 className="size-5" />}
         />
         <KpiCard
           label={t('unreconciled')}
-          value={payments.length - reconciled}
+          value={`${payments.length - reconciledCount} (${formatEgp(unreconciledAmount, locale)})`}
           icon={<Clock className="size-5" />}
+          threshold={{ warn: 3, alert: 5, higherIsBad: true }}
         />
+        <KpiCard
+          label="Reconciliation Rate"
+          value={`${payments.length > 0 ? ((reconciledCount / payments.length) * 100).toFixed(0) : 0}%`}
+          icon={<CheckCircle2 className="size-5" />}
+        />
+      </div>
+
+      {/* Fix #20: Reconciliation filter */}
+      <div className="flex items-center gap-2">
+        <Filter className="size-4 text-hcx-text-muted" />
+        {(['all', 'reconciled', 'unreconciled'] as const).map((f) => (
+          <Button
+            key={f}
+            variant={reconFilter === f ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setReconFilter(f)}
+          >
+            {f === 'all' ? `All (${payments.length})` :
+             f === 'reconciled' ? `${t('reconciled')} (${reconciledCount})` :
+             `${t('unreconciled')} (${payments.length - reconciledCount})`}
+          </Button>
+        ))}
       </div>
 
       <Card>
@@ -126,7 +178,7 @@ export default function ProviderPaymentsPage() {
           <CardTitle>{t('title')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} data={payments} />
+          <DataTable columns={columns} data={filteredPayments} />
         </CardContent>
       </Card>
     </div>
