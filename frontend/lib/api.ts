@@ -341,6 +341,8 @@ export const api = {
       human_decision: string;
       ai_score?: number;
       model?: string;
+      override_reason?: string;
+      notes?: string;
     },
     opts: FetchOptions = {},
   ): Promise<FeedbackStats> {
@@ -544,11 +546,15 @@ export const api = {
         organization: string;
         email: string;
         language: string;
+        phone?: string;
       };
       notifications: {
         denial: boolean;
         payment: boolean;
         comms: boolean;
+        preauth?: boolean;
+        emailAlerts?: boolean;
+        inAppAlerts?: boolean;
       };
     }>('/internal/ai/bff/provider/settings', opts);
   },
@@ -560,11 +566,15 @@ export const api = {
         organization: string;
         email: string;
         language: string;
+        phone?: string;
       };
       notifications: {
         denial: boolean;
         payment: boolean;
         comms: boolean;
+        preauth?: boolean;
+        emailAlerts?: boolean;
+        inAppAlerts?: boolean;
       };
     },
     opts: FetchOptions = {},
@@ -575,11 +585,15 @@ export const api = {
         organization: string;
         email: string;
         language: string;
+        phone?: string;
       };
       notifications: {
         denial: boolean;
         payment: boolean;
         comms: boolean;
+        preauth?: boolean;
+        emailAlerts?: boolean;
+        inAppAlerts?: boolean;
       };
     }>('/internal/ai/bff/provider/settings', {
       method: 'PUT',
@@ -602,12 +616,44 @@ export const api = {
     }>('/internal/ai/bff/payer/communications', opts);
   },
 
+  // ── Payer pre-auth ─────────────────────────────────────────────────────
+  payerPreauth(opts: FetchOptions = {}) {
+    return request<{
+      items: Array<{
+        request_id: string;
+        provider_id: string;
+        patient_nid_masked: string;
+        icd10: string;
+        procedure: string;
+        amount: number;
+        status: string;
+        requested_at: string;
+        justification?: string;
+      }>;
+    }>('/internal/ai/bff/payer/preauth', opts);
+  },
+
+  updatePreauthStatus(
+    payload: { request_id: string; status: string; reason?: string },
+    opts: FetchOptions = {},
+  ) {
+    return request<{ request_id: string; status: string }>('/internal/ai/bff/payer/preauth/decision', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
   // ── Payer settings ─────────────────────────────────────────────────────
   payerSettings(opts: FetchOptions = {}) {
     return request<{
       auto_routing_enabled: boolean;
       auto_approve_threshold: number;
       notify_on_high_risk: boolean;
+      auto_deny_fraud_threshold?: number;
+      fraud_notify_threshold?: number;
+      require_override_reason?: boolean;
+      max_auto_approve_amount?: number;
     }>('/internal/ai/bff/payer/settings', opts);
   },
 
@@ -616,6 +662,10 @@ export const api = {
       auto_routing_enabled: boolean;
       auto_approve_threshold: number;
       notify_on_high_risk: boolean;
+      auto_deny_fraud_threshold?: number;
+      fraud_notify_threshold?: number;
+      require_override_reason?: boolean;
+      max_auto_approve_amount?: number;
     },
     opts: FetchOptions = {},
   ) {
@@ -623,6 +673,10 @@ export const api = {
       auto_routing_enabled: boolean;
       auto_approve_threshold: number;
       notify_on_high_risk: boolean;
+      auto_deny_fraud_threshold?: number;
+      fraud_notify_threshold?: number;
+      require_override_reason?: boolean;
+      max_auto_approve_amount?: number;
     }>('/internal/ai/bff/payer/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
