@@ -161,8 +161,7 @@ export default function PayerSettingsPage() {
                 }
               />
               <p className="text-xs text-hcx-text-muted">
-                Claims with AI confidence >= this value AND fraud score &lt; 0.2
-                are auto-approved (SRS FR-PD-002).
+                {`Claims with AI confidence >= this value AND fraud score < 0.2 are auto-approved (SRS FR-PD-002).`}
               </p>
             </div>
 
@@ -231,7 +230,7 @@ export default function PayerSettingsPage() {
                 }
               />
               <p className="text-xs text-hcx-text-muted">
-                Claims with fraud risk >= this value are auto-flagged for SIU review.
+                {`Claims with fraud risk >= this value are auto-flagged for SIU review.`}
               </p>
             </div>
 
@@ -252,7 +251,7 @@ export default function PayerSettingsPage() {
                 }
               />
               <p className="text-xs text-hcx-text-muted">
-                Send alerts for claims with fraud risk >= this value.
+                {`Send alerts for claims with fraud risk >= this value.`}
               </p>
             </div>
           </div>
