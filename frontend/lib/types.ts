@@ -44,7 +44,9 @@ export type ClaimStatus =
   | 'investigating'
   | 'settled'
   | 'voided'
-  | 'under_ai_review';
+  | 'under_ai_review'
+  | 'pending_payer_decision'
+  | 'paid';
 
 export interface EligibilityResult {
   status: AgentStatus;

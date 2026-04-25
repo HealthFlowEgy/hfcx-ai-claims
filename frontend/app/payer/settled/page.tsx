@@ -25,14 +25,14 @@ export default function PayerSettledPage() {
   const tc = useTranslations('claim');
   const tco = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
-  const [filter, setFilter] = useState<'all' | 'approved' | 'denied' | 'settled'>('all');
+  const [filter, setFilter] = useState<'all' | 'approved' | 'denied' | 'settled' | 'paid'>('all');
 
   const { data } = useQuery({
     queryKey: ['payer', 'settled'],
     queryFn: () =>
       api.listClaims({
         portal: 'payer',
-        status: ['approved', 'denied', 'settled'],
+        status: ['approved', 'denied', 'settled', 'paid'],
         limit: 200,
       }),
   });
@@ -121,7 +121,7 @@ export default function PayerSettledPage() {
         id: 'payment_status',
         cell: ({ row }) => {
           const s = row.original.status;
-          if (s === 'settled') {
+          if (s === 'settled' || s === 'paid') {
             return (
               <span className="inline-flex items-center gap-1 rounded-full bg-hcx-success/10 px-2 py-0.5 text-xs text-hcx-success">
                 Paid
@@ -172,7 +172,7 @@ export default function PayerSettledPage() {
     const items = data?.items ?? [];
     const approved = items.filter((c) => c.status === 'approved');
     const denied = items.filter((c) => c.status === 'denied');
-    const settled = items.filter((c) => c.status === 'settled');
+    const settled = items.filter((c) => c.status === 'settled' || c.status === 'paid');
     const totalPaid = settled.reduce((sum, c) => sum + c.total_amount, 0);
     return { approved: approved.length, denied: denied.length, settled: settled.length, totalPaid };
   }, [data]);
@@ -206,7 +206,7 @@ export default function PayerSettledPage() {
 
       {/* Filter chips */}
       <div className="flex gap-2">
-        {(['all', 'approved', 'denied', 'settled'] as const).map((f) => (
+        {(['all', 'approved', 'denied', 'settled', 'paid'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}

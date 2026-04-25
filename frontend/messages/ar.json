@@ -93,7 +93,9 @@
     "investigating": "قيد التحقيق",
     "settled": "تم التسوية",
     "voided": "ملغى",
-    "under_ai_review": "قيد مراجعة الذكاء الاصطناعي"
+    "under_ai_review": "قيد مراجعة الذكاء الاصطناعي",
+    "pending_payer_decision": "في انتظار قرار الدافع",
+    "paid": "مدفوع"
   },
   "recommendation": {
     "approve": "موافقة",

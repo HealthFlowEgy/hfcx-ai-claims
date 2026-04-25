@@ -28,9 +28,9 @@ import { cn } from '@/lib/utils';
 
 const COLUMN_STATUSES: Record<string, ClaimStatus[]> = {
   new: ['submitted'],
-  ai: ['ai_analyzed'],
-  pending: ['in_review'],
-  done: ['approved', 'denied', 'partial', 'settled'],
+  ai: ['ai_analyzed', 'under_ai_review'],
+  pending: ['in_review', 'pending_payer_decision'],
+  done: ['approved', 'denied', 'partial', 'settled', 'paid'],
 };
 
 function isToday(iso: string | null): boolean {
@@ -111,11 +111,10 @@ export default function PayerClaimsQueuePage() {
       const promises = Array.from(batchSelected).map((claimId) => {
         const claim = (data?.items ?? []).find((c) => c.claim_id === claimId);
         if (!claim) return Promise.resolve();
-        return api.submitFeedback({
+        return api.submitClaimDecision({
           correlation_id: claim.correlation_id,
-          ai_decision: claim.ai_recommendation ?? 'pended',
-          human_decision: decision,
-          ai_score: claim.ai_risk_score ?? undefined,
+          decision,
+          reason: `Batch ${decision}`,
         });
       });
       return Promise.all(promises);
@@ -354,13 +353,22 @@ function KanbanColumn({
 
 /** Fix #28: Claim history timeline */
 function ClaimHistory({ claim }: { claim: ClaimSummary }) {
+  const terminalStatuses = ['approved', 'denied', 'partial', 'settled', 'paid'];
+  const pastAiReview = claim.status !== 'submitted' && claim.status !== 'under_ai_review';
+  const pastPayer = terminalStatuses.includes(claim.status);
   const events = [
     { label: 'Submitted', date: claim.submitted_at, status: 'submitted' },
     ...(claim.status !== 'submitted'
-      ? [{ label: 'AI Analysis Complete', date: claim.submitted_at, status: 'ai_analyzed' }]
+      ? [{ label: 'Under AI Review', date: claim.submitted_at, status: 'under_ai_review' }]
       : []),
-    ...(claim.decided_at
-      ? [{ label: `Decision: ${claim.status}`, date: claim.decided_at, status: claim.status }]
+    ...(pastAiReview
+      ? [{ label: 'Pending Payer Decision', date: claim.submitted_at, status: 'pending_payer_decision' }]
+      : []),
+    ...(pastPayer && claim.decided_at
+      ? [{ label: `Payer Decision: ${claim.status}`, date: claim.decided_at, status: claim.status }]
+      : []),
+    ...(claim.status === 'paid' && claim.decided_at
+      ? [{ label: 'Payment Completed', date: claim.decided_at, status: 'paid' }]
       : []),
   ];
 
@@ -544,12 +552,21 @@ function DecisionPanel({
           : decision === 'deny'
             ? 'denied'
             : 'investigating';
-      return api.submitFeedback({
+      // Also record feedback for drift monitoring
+      api.submitFeedback({
         correlation_id: claim.correlation_id,
         ai_decision: claim.ai_recommendation ?? 'pended',
         human_decision: humanDecision,
         ai_score: claim.ai_risk_score ?? undefined,
         override_reason: isOverride ? overrideReason : undefined,
+        notes: notes || undefined,
+      }).catch(() => {}); // non-blocking
+
+      // Submit the actual payer decision
+      return api.submitClaimDecision({
+        correlation_id: claim.correlation_id,
+        decision: humanDecision === 'investigating' ? 'denied' : (humanDecision as 'approved' | 'denied'),
+        reason: isOverride ? overrideReason : (notes || undefined),
         notes: notes || undefined,
       });
     },

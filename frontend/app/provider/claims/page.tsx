@@ -24,13 +24,16 @@ import { formatDate, formatEgp, maskNationalId } from '@/lib/utils';
 
 const STATUS_OPTIONS: ClaimStatus[] = [
   'submitted',
+  'under_ai_review',
   'in_review',
   'ai_analyzed',
+  'pending_payer_decision',
   'approved',
   'denied',
   'partial',
   'investigating',
   'settled',
+  'paid',
   'voided',
 ];
 

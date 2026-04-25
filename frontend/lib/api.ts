@@ -353,6 +353,28 @@ export const api = {
     });
   },
 
+  // ── Payer claim decision (CRITICAL DIRECTIVE) ─────────────────────────
+  submitClaimDecision(
+    payload: {
+      correlation_id: string;
+      decision: 'approved' | 'denied';
+      reason?: string;
+      notes?: string;
+    },
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      correlation_id: string;
+      decision: string;
+      status: string;
+      decided_at: string;
+    }>(`/internal/ai/bff/claims/${payload.correlation_id}/decision`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...opts,
+    });
+  },
+
   providerDenials(opts: FetchOptions = {}) {
     return request<{
       categories: Array<{ category: string; count: number; total_egp: number }>;

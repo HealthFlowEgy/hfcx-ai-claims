@@ -94,7 +94,9 @@
     "settled": "Settled",
     "voided": "Voided",
     "pended": "Pended",
-    "under_ai_review": "Under AI Review"
+    "under_ai_review": "Under AI Review",
+    "pending_payer_decision": "Pending Payer Decision",
+    "paid": "Paid"
   },
   "recommendation": {
     "approve": "Approve",

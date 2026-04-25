@@ -6,10 +6,12 @@ import {
   Banknote,
   Brain,
   CheckCircle,
+  CircleDot,
   Clock,
   Search,
   Send,
   SplitSquareHorizontal,
+  UserCheck,
   XCircle,
 } from 'lucide-react';
 
@@ -34,6 +36,8 @@ const STATUS_STYLES: Record<ClaimStatus, { classes: string; Icon: React.Componen
   partial: { classes: 'badge-in-review', Icon: SplitSquareHorizontal },
   pended: { classes: 'badge-in-review', Icon: Clock },
   under_ai_review: { classes: 'badge-ai-analyzed', Icon: Brain },
+  pending_payer_decision: { classes: 'badge-in-review', Icon: UserCheck },
+  paid: { classes: 'badge-settled', Icon: CircleDot },
 };
 
 export interface ClaimStatusBadgeProps {

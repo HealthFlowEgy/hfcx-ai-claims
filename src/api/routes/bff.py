@@ -144,21 +144,53 @@ def _mask_nid(nid: str) -> str:
 
 def _status_from_row(row: AIClaimAnalysis) -> str:
     """
-    Derive the UI-facing status (SRS §2.3 badge set) from the
-    combination of ai_claim_analysis columns.
+    Derive the UI-facing status from ai_claim_analysis columns.
+
+    State machine (CRITICAL DIRECTIVE):
+      submitted → under_ai_review → pending_payer_decision → approved/denied → paid
+
+    The AI layer writes its *recommendation* into adjudication_decision
+    (approved/denied/pended/partial). That is NOT the final status.
+    A separate payer_decision (stored in Redis) records the human decision.
     """
-    decision = row.adjudication_decision
-    # ISSUE-026: Handle all AdjudicationDecision values
-    decision_map = {
-        "approved": "approved",
-        "denied": "denied",
-        "pended": "in_review",
-        "partial": "partial",
-        "voided": "voided",
-        "settled": "settled",
-        "investigating": "investigating",
-    }
-    return decision_map.get(decision, "ai_analyzed")
+    import json as _json
+
+    # 1. Check if a payer has made an explicit decision (stored in Redis)
+    #    This is checked synchronously via a module-level cache that is
+    #    populated by the payer decision endpoint.
+    corr_id = row.correlation_id
+    payer_dec = _payer_decisions_cache.get(corr_id)
+    if payer_dec:
+        if payer_dec == "approved":
+            return "approved"
+        elif payer_dec == "denied":
+            return "denied"
+        elif payer_dec == "paid":
+            return "paid"
+
+    # 2. No payer decision yet — derive from AI processing state
+    ai_decision = row.adjudication_decision
+    has_completed = row.completed_at is not None
+
+    if ai_decision is None and not has_completed:
+        # AI hasn't finished processing yet
+        return "under_ai_review"
+
+    if ai_decision is not None or has_completed:
+        # AI has completed — waiting for payer to act
+        # Special cases for investigation/voided
+        if ai_decision == "voided":
+            return "voided"
+        if ai_decision == "investigating" or (row.fraud_score and row.fraud_score >= 0.8):
+            return "investigating"
+        return "pending_payer_decision"
+
+    return "submitted"
+
+
+# In-memory cache for payer decisions, populated from Redis on startup
+# and updated by the payer decision endpoint.
+_payer_decisions_cache: dict[str, str] = {}
 
 
 # ─── BFF: Provider summary ────────────────────────────────────────────────
@@ -534,13 +566,17 @@ async def regulatory_summary(
 # badge vocabulary, the DB speaks in decision vocabulary.
 _UI_STATUS_TO_DECISION: dict[str, list[str | None]] = {
     "submitted": [None],
-    "ai_analyzed": [None],
-    "in_review": ["pended"],
+    "under_ai_review": [None],
+    "pending_payer_decision": ["approved", "denied", "pended", "partial"],
     "approved": ["approved"],
     "denied": ["denied"],
+    "paid": ["approved"],
     "settled": ["approved"],
     "voided": ["voided"],
     "investigating": ["pended"],
+    # Legacy aliases
+    "ai_analyzed": [None],
+    "in_review": ["pended"],
 }
 
 
@@ -2189,3 +2225,341 @@ async def search_medical_codes(
         total_available=total,
         code_type=type,
     )
+
+
+# ─── BFF: Payer claim decision (CRITICAL DIRECTIVE) ─────────────────────
+class PayerDecisionRequest(BaseModel):
+    decision: Literal["approved", "denied"]
+    reason: str | None = None
+    notes: str | None = None
+
+
+class PayerDecisionResponse(BaseModel):
+    correlation_id: str
+    decision: str
+    status: str
+    decided_at: datetime
+
+
+@router.post(
+    "/bff/claims/{correlation_id}/decision",
+    response_model=PayerDecisionResponse,
+)
+async def submit_payer_decision(
+    correlation_id: str,
+    req: PayerDecisionRequest,
+    _: str = Depends(verify_service_jwt),
+) -> PayerDecisionResponse:
+    """
+    CRITICAL DIRECTIVE: Payer approve/deny endpoint.
+
+    This is the ONLY way a claim status changes from
+    pending_payer_decision → approved/denied. The AI layer
+    never makes this decision — only a human payer can.
+
+    The decision is persisted to Redis and also written to the
+    ai_claim_analysis.adjudication_decision column for durability.
+    """
+    import json as _json
+    now = datetime.now(UTC)
+
+    # 1. Persist to Redis for the in-memory cache
+    redis = RedisService()
+    await redis.setex(
+        f"payer_decision:{correlation_id}",
+        86400 * 365,  # 1 year TTL
+        _json.dumps({
+            "decision": req.decision,
+            "reason": req.reason,
+            "notes": req.notes,
+            "decided_at": now.isoformat(),
+        }),
+    )
+
+    # 2. Update the in-memory cache
+    _payer_decisions_cache[correlation_id] = req.decision
+
+    # 3. Also update the DB column for durability
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            await session.execute(
+                sa.update(AIClaimAnalysis)
+                .where(AIClaimAnalysis.correlation_id == correlation_id)
+                .values(
+                    adjudication_decision=req.decision,
+                    completed_at=now,
+                )
+            )
+            await session.commit()
+    except Exception as exc:
+        log.warning("payer_decision_db_update_failed", error=str(exc))
+        # Redis is the source of truth, DB update is best-effort
+
+    # 4. Also record as feedback for drift monitoring
+    try:
+        await redis.lpush(
+            "feedback:decisions",
+            _json.dumps({
+                "correlation_id": correlation_id,
+                "ai_decision": "recommendation",
+                "human_decision": req.decision,
+                "reason": req.reason,
+                "decided_at": now.isoformat(),
+            }),
+        )
+    except Exception:
+        pass
+
+    return PayerDecisionResponse(
+        correlation_id=correlation_id,
+        decision=req.decision,
+        status=req.decision,
+        decided_at=now,
+    )
+
+
+# ─── BFF: Provider communications reply ─────────────────────────────────
+class CommReplyRequest(BaseModel):
+    body: str
+
+
+class CommReplyResponse(BaseModel):
+    id: str
+    from_name: str
+    direction: str
+    body: str
+    sent_at: datetime
+
+
+@router.post(
+    "/bff/provider/communications/{thread_id}/reply",
+    response_model=CommReplyResponse,
+)
+async def provider_communications_reply(
+    thread_id: str,
+    req: CommReplyRequest,
+    _: str = Depends(verify_service_jwt),
+) -> CommReplyResponse:
+    """Provider sends a reply to a communication thread."""
+    import json as _json
+    now = datetime.now(UTC)
+    msg_id = f"m-{now.strftime('%f')[:6]}"
+    reply = CommReplyResponse(
+        id=msg_id,
+        from_name="Provider",
+        direction="outbound",
+        body=req.body,
+        sent_at=now,
+    )
+    # Persist to Redis so the GET endpoint can include it
+    redis = RedisService()
+    await redis.lpush(
+        f"comms:provider:replies:{thread_id}",
+        _json.dumps(reply.model_dump(), default=str),
+    )
+    await redis.expire(f"comms:provider:replies:{thread_id}", 86400 * 90)
+    return reply
+
+
+# ─── BFF: Payer communications reply ────────────────────────────────────
+@router.post(
+    "/bff/payer/communications/{thread_id}/reply",
+    response_model=CommReplyResponse,
+)
+async def payer_communications_reply(
+    thread_id: str,
+    req: CommReplyRequest,
+    _: str = Depends(verify_service_jwt),
+) -> CommReplyResponse:
+    """Payer sends a reply to a communication thread."""
+    import json as _json
+    now = datetime.now(UTC)
+    msg_id = f"m-{now.strftime('%f')[:6]}"
+    reply = CommReplyResponse(
+        id=msg_id,
+        from_name="Payer",
+        direction="outbound",
+        body=req.body,
+        sent_at=now,
+    )
+    redis = RedisService()
+    await redis.lpush(
+        f"comms:payer:replies:{thread_id}",
+        _json.dumps(reply.model_dump(), default=str),
+    )
+    await redis.expire(f"comms:payer:replies:{thread_id}", 86400 * 90)
+    return reply
+
+
+# ─── BFF: Payer pre-auth list ───────────────────────────────────────────
+class PayerPreAuthItem(BaseModel):
+    request_id: str
+    provider_id: str
+    patient_nid_masked: str
+    icd10: str
+    procedure: str
+    amount: float
+    status: str
+    requested_at: datetime
+    justification: str | None = None
+
+
+class PayerPreAuthListResponse(BaseModel):
+    items: list[PayerPreAuthItem]
+
+
+@router.get(
+    "/bff/payer/preauth",
+    response_model=PayerPreAuthListResponse,
+)
+async def payer_preauth_list(
+    _: str = Depends(verify_service_jwt),
+) -> PayerPreAuthListResponse:
+    """Payer pre-auth queue — shows pending pre-auth requests for review."""
+    now = datetime.now(UTC)
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.adjudication_decision == "pended")
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(30)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_payer_preauth_fallback", error=str(exc))
+        rows = []
+
+    if rows:
+        items = [
+            PayerPreAuthItem(
+                request_id=f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}",
+                provider_id=r.provider_id or "Unknown",
+                patient_nid_masked=r.patient_nid_masked or "****",
+                icd10="M54.5",
+                procedure="Pre-authorization review",
+                amount=float(r.total_amount or 0),
+                status="pending_review",
+                requested_at=r.created_at,
+                justification="Pending clinical review.",
+            )
+            for r in rows
+        ]
+    else:
+        items = [
+            PayerPreAuthItem(
+                request_id="PA-2026-001",
+                provider_id="Kasr El Aini Hospital",
+                patient_nid_masked="**********4567",
+                icd10="M54.5",
+                procedure="MRI Lumbar Spine",
+                amount=4200.0,
+                status="pending_review",
+                requested_at=now - timedelta(days=1),
+                justification="Chronic lower back pain failing conservative management.",
+            ),
+            PayerPreAuthItem(
+                request_id="PA-2026-002",
+                provider_id="Alexandria Medical Center",
+                patient_nid_masked="**********8910",
+                icd10="E11.9",
+                procedure="Continuous glucose monitor",
+                amount=1800.0,
+                status="approved",
+                requested_at=now - timedelta(days=3),
+            ),
+        ]
+
+    # Also include Redis-persisted preauth requests from providers
+    import json as _json
+    try:
+        redis = RedisService()
+        cached = await redis.lrange("preauth:requests", 0, 50)
+        for raw in (cached or []):
+            parsed = _json.loads(raw)
+            items.append(PayerPreAuthItem(
+                request_id=parsed.get("request_id", "PA-unknown"),
+                provider_id=parsed.get("provider_id", "Unknown"),
+                patient_nid_masked=parsed.get("patient_nid_masked", "****"),
+                icd10=parsed.get("icd10", ""),
+                procedure=parsed.get("procedure", ""),
+                amount=float(parsed.get("amount", 0)),
+                status=parsed.get("status", "pending_review"),
+                requested_at=datetime.fromisoformat(parsed["requested_at"])
+                if "requested_at" in parsed else now,
+                justification=parsed.get("justification"),
+            ))
+    except Exception as exc:
+        log.warning("bff_payer_preauth_redis_fallback", error=str(exc))
+
+    return PayerPreAuthListResponse(items=items)
+
+
+# ─── BFF: Payer pre-auth decision ───────────────────────────────────────
+class PreauthDecisionRequest(BaseModel):
+    request_id: str
+    status: str
+    reason: str | None = None
+
+
+class PreauthDecisionResponse(BaseModel):
+    request_id: str
+    status: str
+
+
+@router.post(
+    "/bff/payer/preauth/decision",
+    response_model=PreauthDecisionResponse,
+)
+async def payer_preauth_decision(
+    req: PreauthDecisionRequest,
+    _: str = Depends(verify_service_jwt),
+) -> PreauthDecisionResponse:
+    """Payer approves or denies a pre-auth request."""
+    import json as _json
+    redis = RedisService()
+    await redis.setex(
+        f"preauth:decision:{req.request_id}",
+        86400 * 90,
+        _json.dumps({
+            "request_id": req.request_id,
+            "status": req.status,
+            "reason": req.reason,
+            "decided_at": datetime.now(UTC).isoformat(),
+        }),
+    )
+    return PreauthDecisionResponse(
+        request_id=req.request_id,
+        status=req.status,
+    )
+
+
+# ─── Load payer decisions from Redis on module import ────────────────────
+async def _load_payer_decisions_cache() -> None:
+    """Load all payer decisions from Redis into the in-memory cache."""
+    try:
+        redis = RedisService()
+        keys = await redis.keys("payer_decision:*")
+        if keys:
+            import json as _json
+            for key in keys:
+                raw = await redis.get(key)
+                if raw:
+                    data = _json.loads(raw)
+                    corr_id = key.replace("payer_decision:", "")
+                    _payer_decisions_cache[corr_id] = data.get("decision", "")
+        log.info("payer_decisions_cache_loaded", count=len(_payer_decisions_cache))
+    except Exception as exc:
+        log.warning("payer_decisions_cache_load_failed", error=str(exc))
+
+
+# Register the cache loader as a FastAPI startup event
+from contextlib import asynccontextmanager  # noqa: E402
+
+
+@router.on_event("startup")
+async def _on_startup() -> None:
+    await _load_payer_decisions_cache()
