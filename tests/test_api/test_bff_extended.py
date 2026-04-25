@@ -482,3 +482,127 @@ def _async_return(value):
     async def _inner(*args, **kwargs):
         return value
     return _inner
+
+
+# ─── Tests for _refresh_payer_decisions (cross-worker sync) ──────────
+
+
+def test_refresh_payer_decisions_populates_cache(client):
+    """
+    _refresh_payer_decisions should batch-load decisions from Redis
+    and merge them into the module-level cache.
+    """
+    import asyncio
+    import json as _json
+    from src.api.routes.bff import (
+        _refresh_payer_decisions,
+        _payer_decisions_cache,
+    )
+
+    _payer_decisions_cache.clear()
+
+    mock_redis = type("R", (), {
+        "mget": _async_return([
+            _json.dumps({"decision": "approved"}),
+            _json.dumps({"decision": "denied"}),
+            None,
+        ]),
+    })()
+
+    with patch(
+        "src.api.routes.bff.RedisService",
+        return_value=mock_redis,
+    ):
+        asyncio.get_event_loop().run_until_complete(
+            _refresh_payer_decisions(
+                ["corr-1", "corr-2", "corr-3"]
+            )
+        )
+
+    assert _payer_decisions_cache.get("corr-1") == "approved"
+    assert _payer_decisions_cache.get("corr-2") == "denied"
+    assert "corr-3" not in _payer_decisions_cache
+    _payer_decisions_cache.clear()
+
+
+def test_refresh_payer_decisions_empty_list(client):
+    """_refresh_payer_decisions with empty list is a no-op."""
+    import asyncio
+    from src.api.routes.bff import _refresh_payer_decisions
+    asyncio.get_event_loop().run_until_complete(
+        _refresh_payer_decisions([])
+    )
+
+
+def test_refresh_payer_decisions_redis_error(client):
+    """_refresh_payer_decisions handles Redis errors gracefully."""
+    import asyncio
+    from src.api.routes.bff import _refresh_payer_decisions
+
+    mock_redis = type("R", (), {
+        "mget": _async_noop_raise,
+    })()
+
+    with patch(
+        "src.api.routes.bff.RedisService",
+        return_value=mock_redis,
+    ):
+        asyncio.get_event_loop().run_until_complete(
+            _refresh_payer_decisions(["corr-1"])
+        )
+
+
+# ─── Tests for RedisService.mget ─────────────────────────────────────
+
+
+def test_redis_mget_returns_values():
+    """RedisService.mget should return values for given keys."""
+    import asyncio
+    from src.services.redis_service import RedisService
+
+    mock_client = type("C", (), {
+        "mget": _async_return([b"val1", None, b"val3"]),
+    })()
+
+    svc = RedisService.__new__(RedisService)
+    svc._client = mock_client
+
+    result = asyncio.get_event_loop().run_until_complete(
+        svc.mget(["k1", "k2", "k3"])
+    )
+    assert result == ["val1", None, "val3"]
+
+
+def test_redis_mget_empty_keys():
+    """RedisService.mget with empty keys returns empty list."""
+    import asyncio
+    from src.services.redis_service import RedisService
+
+    svc = RedisService.__new__(RedisService)
+    result = asyncio.get_event_loop().run_until_complete(
+        svc.mget([])
+    )
+    assert result == []
+
+
+def test_redis_mget_error_returns_nones():
+    """RedisService.mget should return Nones on error."""
+    import asyncio
+    from src.services.redis_service import RedisService
+
+    mock_client = type("C", (), {
+        "mget": _async_noop_raise,
+    })()
+
+    svc = RedisService.__new__(RedisService)
+    svc._client = mock_client
+
+    result = asyncio.get_event_loop().run_until_complete(
+        svc.mget(["k1", "k2"])
+    )
+    assert result == [None, None]
+
+
+async def _async_noop_raise(*args, **kwargs):
+    """Async function that raises RuntimeError for testing."""
+    raise RuntimeError("connection lost")
