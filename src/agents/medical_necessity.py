@@ -109,6 +109,34 @@ class MedicalNecessityAgent:
             claim.drug_codes, eda_context
         )
 
+        # SAFETY GUARD: If no clinical guidelines were retrieved from
+        # ChromaDB, the LLM has no grounding material and will
+        # hallucinate a positive assessment. In this case, return an
+        # inconclusive result that forces human review instead of
+        # letting the LLM fabricate supporting evidence.
+        if not guidelines_context:
+            log.warning(
+                "necessity_no_guidelines",
+                claim_id=claim.claim_id,
+                diagnosis_codes=claim.diagnosis_codes,
+            )
+            return MedicalNecessityResult(
+                status=AgentStatus.COMPLETED,
+                is_medically_necessary=None,
+                confidence_score=0.0,
+                supporting_evidence=[
+                    "No clinical guidelines retrieved from knowledge "
+                    "base. Assessment deferred to human reviewer."
+                ],
+                clinical_guidelines_referenced=[],
+                eda_formulary_status=formulary_status,
+                alternative_suggestions=[],
+                arabic_summary=(
+                    "لم يتم العثور على إرشادات سريرية مطابقة. "
+                    "يتطلب مراجعة يدوية من المراجع الطبي."
+                ),
+            )
+
         assessment = await self._llm_assess_necessity(
             claim=claim,
             eda_context=eda_context,
@@ -271,10 +299,15 @@ Return ONLY a JSON object with this structure:
             return json.loads(clean)
         except Exception as exc:
             log.warning("necessity_llm_failed", error=str(exc))
+            # SAFETY: On LLM failure, default to inconclusive (None)
+            # instead of True. This prevents auto-approval of claims
+            # when the LLM is unavailable.
             return {
-                "is_necessary": True,
-                "confidence": 0.5,
-                "supporting_evidence": ["Assessment inconclusive — requires human review"],
+                "is_necessary": None,
+                "confidence": 0.0,
+                "supporting_evidence": [
+                    "LLM assessment failed — requires human review"
+                ],
                 "guidelines_referenced": [],
                 "alternatives": [],
             }

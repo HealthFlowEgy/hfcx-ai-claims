@@ -117,48 +117,281 @@ DEMO_EDA_ENTRIES = [
 ]
 
 DEMO_GUIDELINES_ENTRIES = [
+    # ── General coverage policies ────────────────────────────────────
     {
         "id": "GL-NHIA-OUTPATIENT-2024",
-        "text": "NHIA Outpatient Coverage Policy 2024: All outpatient visits covered at HCP-registered facilities. "
-                "Copay: 10% for Tier 1 drugs, 20% for Tier 2, 30% for Tier 3. "
-                "Referral required for specialist visits. Maximum 12 outpatient visits per year per beneficiary. "
-                "سياسة التغطية الخارجية للهيئة الوطنية للتأمين الصحي ٢٠٢٤.",
+        "text": (
+            "NHIA Outpatient Coverage Policy 2024: All outpatient "
+            "visits covered at HCP-registered facilities. "
+            "Copay: 10% for Tier 1 drugs, 20% for Tier 2, 30% for "
+            "Tier 3. Referral required for specialist visits. "
+            "Maximum 12 outpatient visits per year per beneficiary. "
+            "سياسة التغطية الخارجية للهيئة الوطنية للتأمين الصحي."
+        ),
         "metadata": {
             "source": "NHIA",
             "policy_id": "NHIA-OP-2024",
             "effective_date": "2024-01-01",
             "claim_types": "outpatient",
-        }
+        },
     },
     {
+        "id": "GL-NHIA-INPATIENT-2024",
+        "text": (
+            "NHIA Inpatient Coverage Policy 2024: Inpatient "
+            "admissions require pre-authorization for elective "
+            "procedures. Emergency admissions covered without prior "
+            "auth. Maximum length of stay: 30 days per episode. "
+            "ICU coverage limited to 14 days per admission. "
+            "Rehabilitation transfers require separate authorization."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "policy_id": "NHIA-IP-2024",
+            "effective_date": "2024-01-01",
+            "claim_types": "inpatient",
+        },
+    },
+    # ── Infectious disease ───────────────────────────────────────────
+    {
         "id": "GL-MOH-ANTIBIOTIC-2023",
-        "text": "Egyptian Ministry of Health Antibiotic Stewardship Guidelines 2023: "
-                "Amoxicillin first-line for community-acquired URTI (J06.9). "
-                "Azithromycin for penicillin-allergic patients. "
-                "Duration: 5-7 days for URTI, 7-10 days for pneumonia (J18). "
-                "Culture required before IV antibiotics exceeding 3 days. "
-                "إرشادات وزارة الصحة المصرية للاستخدام الرشيد للمضادات الحيوية.",
+        "text": (
+            "Egyptian MOH Antibiotic Stewardship Guidelines 2023: "
+            "Amoxicillin first-line for community-acquired URTI "
+            "(J06.9). Azithromycin for penicillin-allergic patients. "
+            "Duration: 5-7 days for URTI, 7-10 days for pneumonia "
+            "(J18). Culture required before IV antibiotics exceeding "
+            "3 days. إرشادات الاستخدام الرشيد للمضادات الحيوية."
+        ),
         "metadata": {
             "source": "MOH",
             "guideline_id": "MOH-ABX-2023",
             "effective_date": "2023-06-01",
             "specialty": "infectious_disease",
-        }
+            "icd10_codes": "J06,J18,J22,J01",
+        },
     },
     {
+        "id": "GL-MOH-CHOLERA-2024",
+        "text": (
+            "Egyptian MOH Cholera Management Protocol 2024 (A00): "
+            "Cholera (A00.0 biovar cholerae, A00.1 biovar eltor, "
+            "A00.9 unspecified) is a notifiable disease. Immediate "
+            "oral rehydration therapy (ORT) is first-line. IV fluids "
+            "for severe dehydration. Doxycycline or azithromycin for "
+            "moderate-severe cases. Stool culture mandatory. "
+            "Isolation and contact tracing required. "
+            "بروتوكول علاج الكوليرا - وزارة الصحة المصرية."
+        ),
+        "metadata": {
+            "source": "MOH",
+            "guideline_id": "MOH-CHOLERA-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "infectious_disease",
+            "icd10_codes": "A00,A00.0,A00.1,A00.9",
+        },
+    },
+    # ── Endocrinology / Metabolic ────────────────────────────────────
+    {
         "id": "GL-NHIA-DIABETES-2024",
-        "text": "NHIA Diabetes Management Protocol 2024: Metformin first-line for T2DM (E11). "
-                "HbA1c testing covered every 3 months. Insulin requires endocrinologist referral. "
-                "Self-monitoring devices covered for insulin-dependent patients only. "
-                "SGLT2 inhibitors require prior auth and confirmed CVD diagnosis. "
-                "بروتوكول إدارة السكري للهيئة الوطنية للتأمين الصحي.",
+        "text": (
+            "NHIA Diabetes Management Protocol 2024: Metformin "
+            "first-line for T2DM (E11). HbA1c testing covered every "
+            "3 months. Insulin requires endocrinologist referral. "
+            "Self-monitoring devices covered for insulin-dependent "
+            "patients only. SGLT2 inhibitors require prior auth and "
+            "confirmed CVD diagnosis. "
+            "بروتوكول إدارة السكري للهيئة الوطنية للتأمين الصحي."
+        ),
         "metadata": {
             "source": "NHIA",
             "guideline_id": "NHIA-DM-2024",
             "effective_date": "2024-03-01",
             "specialty": "endocrinology",
-            "icd10_codes": "E11,E10",
-        }
+            "icd10_codes": "E11,E10,E11.9,E10.9",
+        },
+    },
+    {
+        "id": "GL-NHIA-METABOLIC-SYNDROME-2024",
+        "text": (
+            "NHIA Metabolic Syndrome Guidelines 2024 (E88): "
+            "Metabolic syndrome (E88.81) and other metabolic "
+            "disorders (E88.9) require comprehensive workup including "
+            "fasting lipid panel, fasting glucose, HbA1c, and waist "
+            "circumference. Lifestyle modification is first-line. "
+            "Pharmacotherapy for individual components (statins for "
+            "dyslipidemia, metformin for pre-diabetes). "
+            "إرشادات متلازمة الأيض - الهيئة الوطنية للتأمين الصحي."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-METAB-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "endocrinology",
+            "icd10_codes": "E88,E88.81,E88.9",
+        },
+    },
+    # ── Cardiovascular ───────────────────────────────────────────────
+    {
+        "id": "GL-NHIA-HYPERTENSION-2024",
+        "text": (
+            "NHIA Hypertension Management Protocol 2024 (I10): "
+            "Essential hypertension (I10) treatment starts with "
+            "lifestyle modification. First-line: ACE inhibitors or "
+            "ARBs. Second-line: calcium channel blockers. Thiazide "
+            "diuretics for resistant hypertension. BP monitoring "
+            "every 3 months. Target BP <140/90 mmHg (general), "
+            "<130/80 mmHg (diabetic patients). "
+            "بروتوكول علاج ارتفاع ضغط الدم."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-HTN-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "cardiology",
+            "icd10_codes": "I10",
+        },
+    },
+    {
+        "id": "GL-NHIA-CORONARY-2024",
+        "text": (
+            "NHIA Coronary Artery Disease Protocol 2024 (I25): "
+            "Chronic ischemic heart disease (I25) management includes "
+            "dual antiplatelet therapy, statin, beta-blocker. "
+            "Cardiac catheterization covered with prior auth. "
+            "CABG requires multidisciplinary team approval. "
+            "Cardiac rehabilitation: 12 sessions covered post-PCI. "
+            "بروتوكول أمراض الشرايين التاجية."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-CAD-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "cardiology",
+            "icd10_codes": "I25,I20,I21",
+        },
+    },
+    # ── Gastroenterology ─────────────────────────────────────────────
+    {
+        "id": "GL-NHIA-GERD-2024",
+        "text": (
+            "NHIA GERD Management Protocol 2024 (K21): "
+            "Gastro-esophageal reflux disease (K21.0 with "
+            "esophagitis, K21.9 without esophagitis). First-line: "
+            "PPI therapy (omeprazole 20mg) for 4-8 weeks. Step-down "
+            "to H2 blockers for maintenance. Endoscopy covered after "
+            "8 weeks of failed PPI therapy or alarm symptoms. "
+            "Fundoplication requires gastroenterology referral. "
+            "بروتوكول علاج ارتجاع المريء."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-GERD-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "gastroenterology",
+            "icd10_codes": "K21,K21.0,K21.9",
+        },
+    },
+    # ── Musculoskeletal ──────────────────────────────────────────────
+    {
+        "id": "GL-NHIA-BACK-PAIN-2024",
+        "text": (
+            "NHIA Low Back Pain Management Protocol 2024 (M54): "
+            "Dorsalgia (M54.5 low back pain, M54.9 unspecified). "
+            "Conservative management first: NSAIDs, physical therapy "
+            "(12 sessions covered). MRI only after 6 weeks of failed "
+            "conservative treatment or red flag symptoms. Spinal "
+            "injections require pain specialist referral. Surgery "
+            "requires orthopedic/neurosurgery committee approval. "
+            "بروتوكول علاج آلام أسفل الظهر."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-LBP-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "orthopedics",
+            "icd10_codes": "M54,M54.5,M54.9",
+        },
+    },
+    # ── Respiratory ──────────────────────────────────────────────────
+    {
+        "id": "GL-NHIA-ASTHMA-2024",
+        "text": (
+            "NHIA Asthma Management Protocol 2024 (J45): "
+            "Bronchial asthma (J45) stepwise therapy per GINA. "
+            "Step 1: SABA as needed. Step 2: low-dose ICS. "
+            "Step 3: ICS/LABA combination. Spirometry required for "
+            "diagnosis. Peak flow monitoring covered. Biologic "
+            "therapy (omalizumab) requires prior auth and confirmed "
+            "severe persistent asthma. "
+            "بروتوكول علاج الربو الشعبي."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-ASTHMA-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "pulmonology",
+            "icd10_codes": "J45,J45.20,J45.30,J45.40,J45.50",
+        },
+    },
+    # ── Pharmacy / General ───────────────────────────────────────────
+    {
+        "id": "GL-NHIA-PHARMACY-2024",
+        "text": (
+            "NHIA Pharmacy Benefits Policy 2024: Generic "
+            "substitution mandatory unless brand-medically-necessary "
+            "form is submitted. Maximum 90-day supply for chronic "
+            "medications. Controlled substances limited to 30-day "
+            "supply. EDA formulary compliance required. "
+            "Off-formulary drugs require medical exception form. "
+            "سياسة المنافع الصيدلانية للهيئة الوطنية للتأمين الصحي."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-PHARM-2024",
+            "effective_date": "2024-01-01",
+            "claim_types": "pharmacy",
+        },
+    },
+    # ── Oncology ─────────────────────────────────────────────────────
+    {
+        "id": "GL-NHIA-ONCOLOGY-2024",
+        "text": (
+            "NHIA Oncology Coverage Policy 2024: Chemotherapy "
+            "protocols must follow NCCN or ESMO guidelines. "
+            "Tumor board approval required for off-protocol regimens. "
+            "PET-CT covered for staging, not routine surveillance. "
+            "Targeted therapy requires confirmed biomarker testing. "
+            "Palliative care covered for Stage IV patients. "
+            "سياسة تغطية علاج الأورام."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-ONCO-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "oncology",
+            "icd10_codes": "C00-C97",
+        },
+    },
+    # ── Nephrology ───────────────────────────────────────────────────
+    {
+        "id": "GL-NHIA-CKD-2024",
+        "text": (
+            "NHIA Chronic Kidney Disease Protocol 2024 (N18): "
+            "CKD staging per KDIGO. eGFR monitoring every 3-6 months. "
+            "Dialysis covered for Stage 5 (eGFR <15). Fistula "
+            "creation covered 6 months before anticipated dialysis. "
+            "Transplant evaluation covered at NHIA-approved centers. "
+            "EPO therapy requires Hb <10 g/dL confirmation. "
+            "بروتوكول أمراض الكلى المزمنة."
+        ),
+        "metadata": {
+            "source": "NHIA",
+            "guideline_id": "NHIA-CKD-2024",
+            "effective_date": "2024-01-01",
+            "specialty": "nephrology",
+            "icd10_codes": "N18,N18.1,N18.2,N18.3,N18.4,N18.5,N18.9",
+        },
     },
 ]
 

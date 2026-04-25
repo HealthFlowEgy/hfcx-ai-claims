@@ -28,6 +28,7 @@ from src.models.schemas import (
     FHIRClaimBundle,
 )
 from src.services.arabic_nlp_service import ArabicMedicalNLPService
+from src.services.code_search_service import CodeSearchService
 from src.services.hapi_fhir_service import HAPIFHIRService
 from src.services.healthcare_nlp_service import HealthcareNLPService
 from src.services.llm_service import LLMService
@@ -61,6 +62,7 @@ class MedicalCodingAgent:
         self._hapi = HAPIFHIRService()
         self._arabic_nlp = ArabicMedicalNLPService()
         self._healthcare_nlp = HealthcareNLPService()
+        self._code_search = CodeSearchService.get_instance()
 
     async def validate(self, claim: FHIRClaimBundle) -> CodingValidationResult:
         with AGENT_LATENCY.labels(agent="medical_coding").time():
@@ -74,14 +76,30 @@ class MedicalCodingAgent:
         suggested_corrections: list[dict[str, Any]] = []
         arabic_entities: list[str] = []
 
-        # 1. Structural validation
+        # 1. Structural validation + deterministic ICD-10 lookup
+        #    Uses the authoritative CDC FY2026 ICD-10-CM code set
+        #    (74,719 codes) to ground descriptions instead of relying
+        #    on LLM-generated descriptions which hallucinate.
         for code in claim.diagnosis_codes:
+            format_valid = bool(ICD10_PATTERN.match(code.upper()))
+            # Deterministic lookup: exact match in the 74K code table
+            lookup = self._code_search.search(
+                code, code_type="icd10", limit=1
+            )
+            found_in_table = (
+                len(lookup) > 0
+                and lookup[0]["code"].upper() == code.upper()
+            )
+            authoritative_desc = (
+                lookup[0]["description"] if found_in_table else None
+            )
             icd10_validations.append(
                 {
                     "code": code,
-                    "format_valid": bool(ICD10_PATTERN.match(code.upper())),
-                    "semantic_valid": None,
-                    "description": None,
+                    "format_valid": format_valid,
+                    "semantic_valid": found_in_table if format_valid else False,
+                    "description": authoritative_desc,
+                    "source": "icd10cm-2026" if found_in_table else None,
                 }
             )
 
@@ -130,13 +148,15 @@ class MedicalCodingAgent:
             for item in llm_result.get("icd10_validations", []):
                 for v in icd10_validations:
                     if v["code"] == item.get("code"):
-                        v.update(
-                            {
-                                "semantic_valid": item.get("valid"),
-                                "description": item.get("description"),
-                                "confidence": item.get("confidence"),
-                            }
-                        )
+                        # Only update semantic_valid from LLM if the
+                        # deterministic table didn't already resolve it.
+                        if v["semantic_valid"] is None:
+                            v["semantic_valid"] = item.get("valid")
+                        # NEVER overwrite authoritative descriptions
+                        # with LLM-generated ones (hallucination fix).
+                        if v["description"] is None:
+                            v["description"] = item.get("description")
+                        v["confidence"] = item.get("confidence")
             procedure_validations = llm_result.get("procedure_validations", [])
             suggested_corrections = llm_result.get("suggested_corrections", [])
 
@@ -170,9 +190,13 @@ class MedicalCodingAgent:
                     )
 
         # 4. Aggregate decision
+        #    A code is valid only if BOTH format and semantic checks
+        #    pass. Codes where semantic_valid is still None (not
+        #    resolved by the deterministic table, HAPI, or LLM) are
+        #    treated as INVALID to avoid false-positive approvals.
         format_ok = all(v["format_valid"] for v in icd10_validations)
         semantic_ok = all(
-            v.get("semantic_valid", True) is not False for v in icd10_validations
+            v.get("semantic_valid") is True for v in icd10_validations
         )
 
         # 5. FR-MC-003: NDP cross-reference (pharmacy claims only)
@@ -210,8 +234,10 @@ class MedicalCodingAgent:
         confidences = [
             v.get("confidence") for v in icd10_validations if v.get("confidence")
         ]
+        # Default to 0.5 (inconclusive) instead of 0.85 when no
+        # per-code confidence scores are available.
         avg_confidence = (
-            sum(confidences) / len(confidences) if confidences else 0.85
+            sum(confidences) / len(confidences) if confidences else 0.5
         )
 
         return CodingValidationResult(

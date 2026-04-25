@@ -84,6 +84,7 @@ class FraudDetectionAgent:
     _IFOREST: IForest | None = None
     _LOF: LOF | None = None
     _HBOS: HBOS | None = None
+    _HBOS_ACTIVE: bool = False  # disabled until real baseline data
     # Lazy-init lock — concurrent first-call coroutines would otherwise both
     # race into _ensure_fitted() and fit the detectors twice.
     _FIT_LOCK: asyncio.Lock | None = None
@@ -422,12 +423,21 @@ class FraudDetectionAgent:
         except Exception:
             lof_score = 0.0
 
-        try:
-            hbos_score = float(
-                FraudDetectionAgent._HBOS.decision_function(x)[0]  # noqa
-            )
-        except Exception:
-            hbos_score = 0.0
+        # HBOS is disabled until real production baseline data is
+        # available. On synthetic cold-start data HBOS returns 1.0
+        # for every claim because the histogram bins have zero
+        # variance, making the detector useless and inflating the
+        # ensemble score. Re-enable once >=500 real claims exist
+        # in the Redis fraud:baseline:features list.
+        hbos_score = 0.0
+        hbos_active = FraudDetectionAgent._HBOS_ACTIVE
+        if hbos_active:
+            try:
+                hbos_score = float(
+                    FraudDetectionAgent._HBOS.decision_function(x)[0]
+                )
+            except Exception:
+                hbos_score = 0.0
 
         # Normalize raw scores to [0, 1] with a soft squash
         def _squash(v: float) -> float:
@@ -438,9 +448,15 @@ class FraudDetectionAgent:
             "iforest_raw": round(_squash(iforest_raw), 4),
             "lof": round(_squash(lof_score), 4),
             "hbos": round(_squash(hbos_score), 4),
+            "hbos_active": hbos_active,
         }
-        # Simple average of the three probability-scale signals
-        ensemble = (per["iforest"] + per["lof"] + per["hbos"]) / 3.0
+        # When HBOS is disabled, average only IForest + LOF.
+        if hbos_active:
+            ensemble = (
+                per["iforest"] + per["lof"] + per["hbos"]
+            ) / 3.0
+        else:
+            ensemble = (per["iforest"] + per["lof"]) / 2.0
         return round(float(ensemble), 4), per
 
     async def _ensure_fitted(self) -> None:
@@ -493,12 +509,23 @@ class FraudDetectionAgent:
                 contamination=contamination, n_neighbors=20
             )
             FraudDetectionAgent._HBOS = HBOS(contamination=contamination)
+
+            # Only activate HBOS when fitted on real data (>=50
+            # samples from Redis). Synthetic data has low variance
+            # which causes HBOS histogram bins to collapse,
+            # returning decision_function=1.0 for every input.
+            using_real_data = len(baseline) >= 50
+            FraudDetectionAgent._HBOS_ACTIVE = using_real_data
             try:
                 FraudDetectionAgent._IFOREST.fit(data)
                 FraudDetectionAgent._LOF.fit(data)
                 FraudDetectionAgent._HBOS.fit(data)
                 FraudDetectionAgent._FITTED = True
-                log.info("fraud_ensemble_fitted", samples=int(data.shape[0]))
+                log.info(
+                    "fraud_ensemble_fitted",
+                    samples=int(data.shape[0]),
+                    hbos_active=using_real_data,
+                )
             except Exception as exc:  # pragma: no cover
                 log.warning("fraud_fit_failed", error=str(exc))
 

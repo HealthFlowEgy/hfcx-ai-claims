@@ -209,7 +209,14 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
             human_review_reasons.append(f"High fraud risk score: {fraud.fraud_score:.2f}")
             FRAUD_HIGH_RISK_CLAIMS.inc()
         elif fraud.risk_level == RiskLevel.MEDIUM:
-            human_review_reasons.append(f"Medium fraud risk: {fraud.fraud_score:.2f}")
+            # Only flag medium fraud for human review when the score
+            # is above 0.5. Below that threshold, medium-risk is
+            # noise from the cold-start ensemble and should not
+            # block straight-through processing.
+            if fraud.fraud_score >= 0.5:
+                human_review_reasons.append(
+                    f"Medium fraud risk: {fraud.fraud_score:.2f}"
+                )
 
         if fraud.refer_to_siu:
             human_review_reasons.append("Referred to Special Investigations Unit")
@@ -229,13 +236,24 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
     # ── Medical necessity gate ────────────────────────────────────────────
     if necessity and necessity.status == AgentStatus.COMPLETED:
         if necessity.confidence_score is not None:
-            confidence_scores.append(necessity.confidence_score)
+            # Only include non-zero confidence scores in the average;
+            # a 0.0 score means the agent deferred (no guidelines).
+            if necessity.confidence_score > 0.0:
+                confidence_scores.append(necessity.confidence_score)
 
         if necessity.is_medically_necessary is False:
             if decision == AdjudicationDecision.APPROVED:
                 decision = AdjudicationDecision.PENDED
             human_review_reasons.append(
                 "Medical necessity not established — requires clinical review"
+            )
+        elif necessity.is_medically_necessary is None:
+            # Inconclusive — no guidelines retrieved or LLM failed.
+            # Route to human review but do NOT deny.
+            if decision == AdjudicationDecision.APPROVED:
+                decision = AdjudicationDecision.PENDED
+            human_review_reasons.append(
+                "Medical necessity inconclusive — no guidelines available"
             )
 
         if necessity.eda_formulary_status == "unlisted":
