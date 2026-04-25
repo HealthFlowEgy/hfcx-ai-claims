@@ -566,7 +566,7 @@ def test_redis_mget_returns_values():
     from src.services.redis_service import RedisService
 
     mock_client = type("C", (), {
-        "mget": _async_return([b"val1", None, b"val3"]),
+        "mget": _async_return(["val1", None, "val3"]),
     })()
 
     svc = RedisService.__new__(RedisService)
