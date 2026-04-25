@@ -458,7 +458,11 @@ def test_payer_preauth_decision(client):
         resp = client.post(
             "/internal/ai/bff/payer/preauth/decision",
             headers=_AUTH,
-            json={"request_id": "PA-2026-001", "status": "approved", "reason": "Medically necessary"},
+            json={
+                "request_id": "PA-2026-001",
+                "status": "approved",
+                "reason": "Medically necessary",
+            },
         )
     assert resp.status_code == 200
     data = resp.json()
