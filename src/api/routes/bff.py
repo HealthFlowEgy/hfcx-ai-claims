@@ -153,8 +153,6 @@ def _status_from_row(row: AIClaimAnalysis) -> str:
     (approved/denied/pended/partial). That is NOT the final status.
     A separate payer_decision (stored in Redis) records the human decision.
     """
-    import json as _json
-
     # 1. Check if a payer has made an explicit decision (stored in Redis)
     #    This is checked synchronously via a module-level cache that is
     #    populated by the payer decision endpoint.
@@ -2557,7 +2555,6 @@ async def _load_payer_decisions_cache() -> None:
 
 
 # Register the cache loader as a FastAPI startup event
-from contextlib import asynccontextmanager  # noqa: E402
 
 
 @router.on_event("startup")
