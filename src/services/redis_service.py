@@ -155,6 +155,23 @@ class RedisService:
             log.warning("redis_expire_failed", key=key, error=str(exc))
             return False
 
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Batch-get multiple keys in a single round-trip."""
+        if not keys:
+            return []
+        try:
+            vals = await self._client.mget(*keys)
+            return [
+                str(v) if v is not None else None
+                for v in vals
+            ]
+        except Exception as exc:
+            log.warning(
+                "redis_mget_failed",
+                count=len(keys),
+                error=str(exc),
+            )
+            return [None] * len(keys)
     async def close(self) -> None:
         await self._client.close()
 

@@ -191,6 +191,38 @@ def _status_from_row(row: AIClaimAnalysis) -> str:
 _payer_decisions_cache: dict[str, str] = {}
 
 
+async def _refresh_payer_decisions(
+    correlation_ids: list[str],
+) -> None:
+    """
+    Batch-refresh the in-memory payer decisions cache from Redis.
+
+    With multiple uvicorn workers, the in-memory cache may be stale
+    because the decision endpoint updates only the worker that handled
+    the request. This function does a single MGET round-trip to Redis
+    and merges the results into the module-level cache so that
+    _status_from_row() returns the correct status for all workers.
+    """
+    if not correlation_ids:
+        return
+    import json as _json
+    try:
+        redis = RedisService()
+        keys = [f"payer_decision:{cid}" for cid in correlation_ids]
+        values = await redis.mget(keys)
+        for cid, raw in zip(correlation_ids, values):
+            if raw:
+                try:
+                    data = _json.loads(raw)
+                    _payer_decisions_cache[cid] = data.get(
+                        "decision", ""
+                    )
+                except (ValueError, TypeError):
+                    pass
+    except Exception as exc:
+        log.warning("refresh_payer_decisions_failed", error=str(exc))
+
+
 # ─── BFF: Provider summary ────────────────────────────────────────────────
 @router.get("/bff/provider/summary", response_model=ProviderSummary)
 async def provider_summary(
@@ -304,6 +336,8 @@ async def payer_summary(
                     )
                 )
             ).scalars().all()
+            # Refresh payer decisions from Redis (cross-worker sync)
+            await _refresh_payer_decisions(list(all_decided_by_ai))
             queue_depth = sum(
                 1 for cid in all_decided_by_ai
                 if cid not in _payer_decisions_cache
@@ -645,6 +679,10 @@ async def list_claims(
 
             total = (await session.execute(count_stmt)).scalar() or 0
             rows = (await session.execute(data_stmt)).scalars().all()
+
+            # Refresh payer decisions cache from Redis (cross-worker sync)
+            corr_ids = [r.correlation_id for r in rows if r.correlation_id]
+            await _refresh_payer_decisions(corr_ids)
 
             # Build items with the computed UI status
             all_items = [
