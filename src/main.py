@@ -43,6 +43,7 @@ from src.api.routes.sse import router as sse_router
 from src.config import get_settings
 from src.models.orm import dispose_engine
 from src.services.audit_service import AuditService
+from src.services.chromadb_seeder import seed_chromadb_if_empty
 from src.services.hapi_fhir_service import HAPIFHIRService
 from src.services.llm_service import LLMService
 from src.services.ndp_service import NDPService
@@ -67,6 +68,11 @@ async def lifespan(app: FastAPI):
         await get_coordinator().ensure_ready()
     except Exception as exc:  # pragma: no cover — tolerate missing Redis in dev
         log.warning("coordinator_init_failed", error=str(exc))
+    # Seed ChromaDB clinical guidelines if collections are empty.
+    try:
+        await seed_chromadb_if_empty()
+    except Exception as exc:  # pragma: no cover
+        log.warning("chromadb_seed_failed", error=str(exc))
     yield
     # Shutdown: stop audit flusher first so pending audit rows drain, then
     # close shared HTTP clients, engine, redis pool, coordinator.
