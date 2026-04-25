@@ -90,7 +90,7 @@ spec:
 
 ---
 # ── ChromaDB (Vector Store for RAG) ─────────────────────────────────────────
-# NOTE: chromadb/chroma:0.5.5 runs as root by default, so no fix-perms init
+# NOTE: chromadb/chroma:0.5.18 runs as root by default, so no fix-perms init
 # container is needed. If a future version drops root privileges, add an init
 # container similar to Redpanda/Grafana/Prometheus above with the appropriate
 # UID (check the image's Dockerfile).
@@ -113,7 +113,7 @@ spec:
     spec:
       containers:
         - name: chromadb
-          image: chromadb/chroma:0.5.5
+          image: chromadb/chroma:0.5.18
           ports:
             - containerPort: 8000
           env:
