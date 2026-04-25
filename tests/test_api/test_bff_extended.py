@@ -349,3 +349,132 @@ def test_regulatory_insurers_fallback(client):
     assert isinstance(data, list)
     assert len(data) >= 1
     assert "name" in data[0]
+
+
+# ─── CRITICAL DIRECTIVE: New endpoint tests ──────────────────────────────
+
+def test_payer_claim_decision_endpoint(client):
+    """Test the payer claim decision endpoint (mocked Redis)."""
+    with patch("src.api.routes.bff.RedisService") as mock_redis_cls:
+        mock_redis = mock_redis_cls.return_value
+        mock_redis.setex = _async_noop
+        mock_redis.lpush = _async_noop
+        with patch(
+            "src.api.routes.bff.create_engine_and_session",
+            side_effect=RuntimeError("no db"),
+        ):
+            resp = client.post(
+                "/internal/ai/bff/claims/test-corr-123/decision",
+                headers=_AUTH,
+                json={"decision": "approved", "reason": "Looks good"},
+            )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["correlation_id"] == "test-corr-123"
+    assert data["decision"] == "approved"
+    assert data["status"] == "approved"
+    assert "decided_at" in data
+
+
+def test_payer_claim_decision_denied(client):
+    """Test the payer claim decision endpoint with denial."""
+    with patch("src.api.routes.bff.RedisService") as mock_redis_cls:
+        mock_redis = mock_redis_cls.return_value
+        mock_redis.setex = _async_noop
+        mock_redis.lpush = _async_noop
+        with patch(
+            "src.api.routes.bff.create_engine_and_session",
+            side_effect=RuntimeError("no db"),
+        ):
+            resp = client.post(
+                "/internal/ai/bff/claims/test-corr-456/decision",
+                headers=_AUTH,
+                json={"decision": "denied", "reason": "Missing documentation"},
+            )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["decision"] == "denied"
+
+
+def test_provider_communications_reply(client):
+    """Test provider communications reply endpoint."""
+    with patch("src.api.routes.bff.RedisService") as mock_redis_cls:
+        mock_redis = mock_redis_cls.return_value
+        mock_redis.lpush = _async_noop
+        mock_redis.expire = _async_noop
+        resp = client.post(
+            "/internal/ai/bff/provider/communications/thread-001/reply",
+            headers=_AUTH,
+            json={"body": "Thank you for the update."},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["direction"] == "outbound"
+    assert data["from_name"] == "Provider"
+    assert data["body"] == "Thank you for the update."
+
+
+def test_payer_communications_reply(client):
+    """Test payer communications reply endpoint."""
+    with patch("src.api.routes.bff.RedisService") as mock_redis_cls:
+        mock_redis = mock_redis_cls.return_value
+        mock_redis.lpush = _async_noop
+        mock_redis.expire = _async_noop
+        resp = client.post(
+            "/internal/ai/bff/payer/communications/thread-002/reply",
+            headers=_AUTH,
+            json={"body": "Please provide more details."},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["direction"] == "outbound"
+    assert data["from_name"] == "Payer"
+
+
+def test_payer_preauth_list(client):
+    """Test payer pre-auth list endpoint returns items."""
+    with patch("src.api.routes.bff.RedisService") as mock_redis_cls:
+        mock_redis = mock_redis_cls.return_value
+        mock_redis.lrange = _async_return([])
+        with patch(
+            "src.api.routes.bff.create_engine_and_session",
+            side_effect=RuntimeError("no db"),
+        ):
+            resp = client.get(
+                "/internal/ai/bff/payer/preauth",
+                headers=_AUTH,
+            )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "items" in data
+    assert len(data["items"]) >= 1  # fallback seed data
+
+
+def test_payer_preauth_decision(client):
+    """Test payer pre-auth decision endpoint."""
+    with patch("src.api.routes.bff.RedisService") as mock_redis_cls:
+        mock_redis = mock_redis_cls.return_value
+        mock_redis.setex = _async_noop
+        resp = client.post(
+            "/internal/ai/bff/payer/preauth/decision",
+            headers=_AUTH,
+            json={"request_id": "PA-2026-001", "status": "approved", "reason": "Medically necessary"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["request_id"] == "PA-2026-001"
+    assert data["status"] == "approved"
+
+
+# ─── Async mock helpers ─────────────────────────────────────────────────
+
+async def _async_noop(*args, **kwargs):
+    """Async no-op for mocking Redis methods."""
+    return None
+
+
+def _async_return(value):
+    """Create an async function that returns a specific value."""
+    async def _inner(*args, **kwargs):
+        return value
+    return _inner
