@@ -1,9 +1,13 @@
 """
 ISSUE-064: Extended BFF route tests — covers response shapes, helper functions,
 and fallback behaviour for the most complex endpoints.
+
+Updated for CRITICAL DIRECTIVE: state machine changes mean AI decisions
+map to pending_payer_decision, not directly to approved/denied.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -41,56 +45,102 @@ def test_mask_nid_14_digit():
     assert len(result) == 14
 
 
+def _make_row(
+    adjudication_decision=None,
+    completed_at=None,
+    fraud_score=None,
+    correlation_id="test-corr",
+):
+    """Helper to create a SimpleNamespace row with all required attributes."""
+    return SimpleNamespace(
+        correlation_id=correlation_id,
+        adjudication_decision=adjudication_decision,
+        completed_at=completed_at,
+        fraud_score=fraud_score,
+    )
+
+
 def test_status_from_row_approved():
+    """AI 'approved' recommendation → pending_payer_decision (not approved!)."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="approved")
-    assert _status_from_row(row) == "approved"
+    row = _make_row(adjudication_decision="approved", completed_at=datetime.now())
+    assert _status_from_row(row) == "pending_payer_decision"
 
 
 def test_status_from_row_denied():
+    """AI 'denied' recommendation → pending_payer_decision (not denied!)."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="denied")
-    assert _status_from_row(row) == "denied"
+    row = _make_row(adjudication_decision="denied", completed_at=datetime.now())
+    assert _status_from_row(row) == "pending_payer_decision"
 
 
 def test_status_from_row_pended():
+    """AI 'pended' recommendation → pending_payer_decision."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="pended")
-    assert _status_from_row(row) == "in_review"
+    row = _make_row(adjudication_decision="pended", completed_at=datetime.now())
+    assert _status_from_row(row) == "pending_payer_decision"
 
 
 def test_status_from_row_partial():
-    """ISSUE-026: partial should map to 'partial'."""
+    """AI 'partial' recommendation → pending_payer_decision."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="partial")
-    assert _status_from_row(row) == "partial"
+    row = _make_row(adjudication_decision="partial", completed_at=datetime.now())
+    assert _status_from_row(row) == "pending_payer_decision"
 
 
 def test_status_from_row_voided():
-    """ISSUE-026: voided should map to 'voided'."""
+    """voided should still map to 'voided'."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="voided")
+    row = _make_row(adjudication_decision="voided", completed_at=datetime.now())
     assert _status_from_row(row) == "voided"
 
 
 def test_status_from_row_settled():
-    """ISSUE-026: settled should map to 'settled'."""
+    """AI 'settled' recommendation → pending_payer_decision (payer decides)."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="settled")
-    assert _status_from_row(row) == "settled"
+    row = _make_row(adjudication_decision="settled", completed_at=datetime.now())
+    assert _status_from_row(row) == "pending_payer_decision"
 
 
 def test_status_from_row_investigating():
-    """ISSUE-026: investigating should map to 'investigating'."""
+    """investigating should still map to 'investigating'."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision="investigating")
+    row = _make_row(adjudication_decision="investigating", completed_at=datetime.now())
     assert _status_from_row(row) == "investigating"
 
 
 def test_status_from_row_none():
+    """No AI decision and not completed → under_ai_review."""
     from src.api.routes.bff import _status_from_row
-    row = SimpleNamespace(adjudication_decision=None)
-    assert _status_from_row(row) == "ai_analyzed"
+    row = _make_row(adjudication_decision=None, completed_at=None)
+    assert _status_from_row(row) == "under_ai_review"
+
+
+def test_status_from_row_high_fraud_score():
+    """High fraud score (>=0.8) → investigating regardless of AI decision."""
+    from src.api.routes.bff import _status_from_row
+    row = _make_row(
+        adjudication_decision="approved",
+        completed_at=datetime.now(),
+        fraud_score=0.85,
+    )
+    assert _status_from_row(row) == "investigating"
+
+
+def test_status_from_row_payer_decision_in_cache():
+    """When payer decision exists in cache, it overrides AI recommendation."""
+    from src.api.routes.bff import _payer_decisions_cache, _status_from_row
+    corr_id = "test-payer-override"
+    _payer_decisions_cache[corr_id] = "approved"
+    try:
+        row = _make_row(
+            adjudication_decision="denied",
+            completed_at=datetime.now(),
+            correlation_id=corr_id,
+        )
+        assert _status_from_row(row) == "approved"
+    finally:
+        _payer_decisions_cache.pop(corr_id, None)
 
 
 # ─── Provider summary fallback ───────────────────────────────────────────

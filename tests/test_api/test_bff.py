@@ -117,14 +117,40 @@ def test_bff_mask_nid_helper():
 
 
 def test_bff_status_from_row_helper():
+    """
+    Updated for CRITICAL DIRECTIVE state machine:
+    - AI decisions no longer map directly to approved/denied
+    - Instead they map to pending_payer_decision (waiting for human payer)
+    - Only payer decisions (in Redis cache) produce approved/denied
+    """
+    from datetime import datetime
     from types import SimpleNamespace
 
     from src.api.routes.bff import _status_from_row
 
-    assert _status_from_row(SimpleNamespace(adjudication_decision="approved")) == "approved"
-    assert _status_from_row(SimpleNamespace(adjudication_decision="denied")) == "denied"
-    assert _status_from_row(SimpleNamespace(adjudication_decision="pended")) == "in_review"
-    assert _status_from_row(SimpleNamespace(adjudication_decision=None)) == "ai_analyzed"
+    # AI completed with "approved" recommendation → pending_payer_decision (not approved!)
+    assert _status_from_row(SimpleNamespace(
+        correlation_id="test-1", adjudication_decision="approved",
+        completed_at=datetime.now(), fraud_score=0.1,
+    )) == "pending_payer_decision"
+
+    # AI completed with "denied" recommendation → pending_payer_decision (not denied!)
+    assert _status_from_row(SimpleNamespace(
+        correlation_id="test-2", adjudication_decision="denied",
+        completed_at=datetime.now(), fraud_score=0.1,
+    )) == "pending_payer_decision"
+
+    # AI not yet completed → under_ai_review
+    assert _status_from_row(SimpleNamespace(
+        correlation_id="test-3", adjudication_decision=None,
+        completed_at=None, fraud_score=None,
+    )) == "under_ai_review"
+
+    # AI completed with no decision → pending_payer_decision
+    assert _status_from_row(SimpleNamespace(
+        correlation_id="test-4", adjudication_decision=None,
+        completed_at=datetime.now(), fraud_score=None,
+    )) == "pending_payer_decision"
 
 
 def test_bff_claims_list_supports_siu_and_search(client):
