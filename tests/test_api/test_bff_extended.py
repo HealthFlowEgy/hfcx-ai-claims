@@ -494,9 +494,10 @@ def test_refresh_payer_decisions_populates_cache(client):
     """
     import asyncio
     import json as _json
+
     from src.api.routes.bff import (
-        _refresh_payer_decisions,
         _payer_decisions_cache,
+        _refresh_payer_decisions,
     )
 
     _payer_decisions_cache.clear()
@@ -528,7 +529,9 @@ def test_refresh_payer_decisions_populates_cache(client):
 def test_refresh_payer_decisions_empty_list(client):
     """_refresh_payer_decisions with empty list is a no-op."""
     import asyncio
+
     from src.api.routes.bff import _refresh_payer_decisions
+
     asyncio.get_event_loop().run_until_complete(
         _refresh_payer_decisions([])
     )
@@ -537,6 +540,7 @@ def test_refresh_payer_decisions_empty_list(client):
 def test_refresh_payer_decisions_redis_error(client):
     """_refresh_payer_decisions handles Redis errors gracefully."""
     import asyncio
+
     from src.api.routes.bff import _refresh_payer_decisions
 
     mock_redis = type("R", (), {
@@ -558,6 +562,7 @@ def test_refresh_payer_decisions_redis_error(client):
 def test_redis_mget_returns_values():
     """RedisService.mget should return values for given keys."""
     import asyncio
+
     from src.services.redis_service import RedisService
 
     mock_client = type("C", (), {
@@ -576,6 +581,7 @@ def test_redis_mget_returns_values():
 def test_redis_mget_empty_keys():
     """RedisService.mget with empty keys returns empty list."""
     import asyncio
+
     from src.services.redis_service import RedisService
 
     svc = RedisService.__new__(RedisService)
@@ -588,6 +594,7 @@ def test_redis_mget_empty_keys():
 def test_redis_mget_error_returns_nones():
     """RedisService.mget should return Nones on error."""
     import asyncio
+
     from src.services.redis_service import RedisService
 
     mock_client = type("C", (), {
