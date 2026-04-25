@@ -32,7 +32,8 @@
     "arabic": "العربية",
     "english": "English",
     "unauthorized": "Unauthorized",
-    "accessDenied": "Access denied"
+    "accessDenied": "Access denied",
+    "all": "All"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -93,7 +94,6 @@
     "investigating": "Investigating",
     "settled": "Settled",
     "voided": "Voided",
-    "pended": "Pended",
     "under_ai_review": "Under AI Review",
     "pending_payer_decision": "Pending Payer Decision",
     "paid": "Paid"

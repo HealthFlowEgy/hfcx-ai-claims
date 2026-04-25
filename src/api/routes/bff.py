@@ -294,13 +294,20 @@ async def payer_summary(
     try:
         _, session_factory = create_engine_and_session()
         async with session_factory() as session:
-            queue_depth = (
+            # CRITICAL DIRECTIVE: queue_depth = claims that AI has
+            # processed (adjudication_decision IS NOT NULL) but payer
+            # has NOT yet decided (not in _payer_decisions_cache).
+            all_decided_by_ai = (
                 await session.execute(
-                    select(func.count()).where(
-                        AIClaimAnalysis.adjudication_decision.is_(None)
+                    select(AIClaimAnalysis.correlation_id).where(
+                        AIClaimAnalysis.adjudication_decision.isnot(None)
                     )
                 )
-            ).scalar() or 0
+            ).scalars().all()
+            queue_depth = sum(
+                1 for cid in all_decided_by_ai
+                if cid not in _payer_decisions_cache
+            )
 
             approved = (
                 await session.execute(
@@ -639,7 +646,8 @@ async def list_claims(
             total = (await session.execute(count_stmt)).scalar() or 0
             rows = (await session.execute(data_stmt)).scalars().all()
 
-            items = [
+            # Build items with the computed UI status
+            all_items = [
                 ClaimListItem(
                     claim_id=r.claim_id,
                     correlation_id=r.correlation_id,
@@ -656,6 +664,25 @@ async def list_claims(
                 )
                 for r in rows
             ]
+
+            # CRITICAL DIRECTIVE: Post-filter by computed UI status.
+            # The SQL filter uses the raw adjudication_decision column,
+            # but _status_from_row() may compute a different status
+            # (e.g. pending_payer_decision) based on the payer decisions
+            # cache. We must re-filter to ensure only the requested
+            # statuses are returned.
+            if status:
+                ui_statuses_set = {
+                    s.strip() for s in status.split(",") if s.strip()
+                }
+                items = [
+                    it for it in all_items
+                    if it.status in ui_statuses_set
+                ]
+                total = len(items)
+            else:
+                items = all_items
+
             return ClaimListResponse(items=items, total=total)
     except Exception as exc:
         log.warning("bff_claims_fallback", error=str(exc))

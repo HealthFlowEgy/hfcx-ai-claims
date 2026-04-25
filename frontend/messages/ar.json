@@ -32,7 +32,8 @@
     "arabic": "العربية",
     "english": "English",
     "unauthorized": "غير مصرح",
-    "accessDenied": "تم رفض الوصول"
+    "accessDenied": "تم رفض الوصول",
+    "all": "الكل"
   },
   "nav": {
     "dashboard": "لوحة التحكم",
