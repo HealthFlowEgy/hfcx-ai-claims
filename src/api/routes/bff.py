@@ -2982,6 +2982,10 @@ class PayerPreAuthItem(BaseModel):
     status: str
     requested_at: datetime
     justification: str | None = None
+    verdict: str = "needs_review"  # necessary | needs_review | not_justified
+    confidence: float = 0.0
+    guidelines: list[str] = []
+    claim_id: str | None = None
 
 
 class PayerPreAuthListResponse(BaseModel):
@@ -3026,6 +3030,27 @@ async def payer_preauth_list(
                     pp_status = dec.get("status", "pending_review")
             except Exception:
                 pass
+            # Derive verdict from necessity_result
+            nec = r.necessity_result or {}
+            if isinstance(nec, str):
+                import json as _jnec
+                try:
+                    nec = _jnec.loads(nec)
+                except Exception:
+                    nec = {}
+            is_necessary = nec.get("is_medically_necessary", nec.get("is_necessary"))
+            if is_necessary is True:
+                verdict = "necessary"
+            elif is_necessary is False:
+                verdict = "not_justified"
+            else:
+                verdict = "needs_review"
+            # Extract guidelines
+            guidelines = nec.get("clinical_guidelines_references", nec.get("guidelines", []))
+            if isinstance(guidelines, str):
+                guidelines = [guidelines]
+            # Confidence
+            conf = float(r.overall_confidence or r.confidence or 0)
             items.append(
                 PayerPreAuthItem(
                     request_id=req_id,
@@ -3036,7 +3061,11 @@ async def payer_preauth_list(
                     amount=float(r.total_amount or 0),
                     status=pp_status,
                     requested_at=r.created_at,
-                    justification="Pending clinical review.",
+                    justification=nec.get("arabic_summary") or nec.get("explanation") or "Pending clinical review.",
+                    verdict=verdict,
+                    confidence=conf,
+                    guidelines=guidelines if isinstance(guidelines, list) else [],
+                    claim_id=r.claim_id,
                 )
             )
     else:
@@ -3051,6 +3080,9 @@ async def payer_preauth_list(
                 status="pending_review",
                 requested_at=now - timedelta(days=1),
                 justification="Chronic lower back pain failing conservative management.",
+                verdict="needs_review",
+                confidence=0.62,
+                guidelines=["NHIA MSK Imaging Policy 2024 \u00a73.2", "MOH Clinical Practice Guideline \u2014 Lower Back Pain v1.3"],
             ),
             PayerPreAuthItem(
                 request_id="PA-2026-002",
@@ -3061,6 +3093,9 @@ async def payer_preauth_list(
                 amount=1800.0,
                 status="approved",
                 requested_at=now - timedelta(days=3),
+                verdict="necessary",
+                confidence=0.91,
+                guidelines=["EDA Diabetes Standards of Care 2023 \u00a78.1"],
             ),
         ]
 

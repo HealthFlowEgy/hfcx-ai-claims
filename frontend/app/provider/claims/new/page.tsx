@@ -11,7 +11,17 @@ import {
   useWatch,
 } from 'react-hook-form';
 import { useLocale, useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, Loader2, Plus, Send, Trash2 } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Plus,
+  Send,
+  Shield,
+  Trash2,
+  User,
+} from 'lucide-react';
 import { z } from 'zod';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -113,6 +123,28 @@ export default function NewClaimPage() {
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
   const [progressMsg, setProgressMsg] = useState<string>('');
   const [submittedClaimId, setSubmittedClaimId] = useState<string | null>(null);
+
+  // Provider fraud profile and beneficiary risk profile
+  const [providerProfile, setProviderProfile] = useState<{
+    provider_id: string;
+    total_claims: number;
+    flagged_claims: number;
+    avg_fraud_score: number;
+    total_amount_egp: number;
+    flagged_amount_egp: number;
+    top_diagnosis_codes: string[];
+    risk_level: string;
+  } | null>(null);
+  const [beneficiaryProfile, setBeneficiaryProfile] = useState<{
+    patient_nid_hash: string;
+    total_claims: number;
+    flagged_claims: number;
+    avg_fraud_score: number;
+    total_amount_egp: number;
+    distinct_providers: number;
+    risk_level: string;
+  } | null>(null);
+  const [profilesLoading, setProfilesLoading] = useState(false);
 
   // FEAT-04: Detect resubmit mode from query params
   const isResubmit = searchParams.get('resubmit') === 'true';
@@ -234,15 +266,15 @@ export default function NewClaimPage() {
         ],
       };
       // Fire-and-forget: submit async, return immediately
-      return api.submitClaimAsync(bundle, {
+      return { result: await api.submitClaimAsync(bundle, {
         'X-HCX-Sender-Code': values.provider_id,
         'X-HCX-Recipient-Code': values.payer_id,
         'X-HCX-Correlation-ID': claim_id,
         'X-HCX-Workflow-ID': 'provider-portal',
         'X-HCX-API-Call-ID': claim_id,
-      });
+      }), providerId: values.provider_id, patientNid: values.patient_nid };
     },
-    onSuccess: (res) => {
+    onSuccess: async ({ result: res, providerId, patientNid }) => {
       setSubmittedClaimId(res.claim_id);
       setProgressMsg('');
       // Fix #5: Invalidate claims queries so the new claim appears in the list
@@ -256,8 +288,30 @@ export default function NewClaimPage() {
         ),
         variant: 'success',
       });
-      // Redirect to claims list after a brief delay
-      setTimeout(() => router.push('/provider/claims'), 2500);
+
+      // Fetch provider fraud profile and beneficiary risk profile
+      setProfilesLoading(true);
+      try {
+        const [provProfile, benProfile] = await Promise.allSettled([
+          api.providerFraudProfile(providerId),
+          (async () => {
+            // Hash patient NID with SHA-256 for the beneficiary endpoint
+            const encoder = new TextEncoder();
+            const data = encoder.encode(patientNid);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return api.beneficiaryRiskProfile(hashHex);
+          })(),
+        ]);
+        if (provProfile.status === 'fulfilled') setProviderProfile(provProfile.value);
+        if (benProfile.status === 'fulfilled') setBeneficiaryProfile(benProfile.value);
+      } catch {
+        // Silently ignore — scorecards are optional
+      } finally {
+        setProfilesLoading(false);
+      }
+      // Do NOT auto-redirect — let user review the scorecards
     },
     onError: (error) => {
       setProgressMsg('');
@@ -273,7 +327,17 @@ export default function NewClaimPage() {
     },
   });
 
+  const riskColor = (level: string) =>
+    level === 'high' ? 'text-red-600' : level === 'medium' ? 'text-amber-600' : 'text-green-600';
+  const riskBg = (level: string) =>
+    level === 'high'
+      ? 'bg-red-50 border-red-200'
+      : level === 'medium'
+        ? 'bg-amber-50 border-amber-200'
+        : 'bg-green-50 border-green-200';
+
   // Fix #6: Show "Under AI Review" confirmation after fire-and-forget submission
+  // Now includes Provider Fraud Profile + Beneficiary Risk Profile scorecards
   if (submittedClaimId && !aiResult) {
     return (
       <div className="space-y-6">
@@ -282,20 +346,197 @@ export default function NewClaimPage() {
         </header>
         <Alert variant="success">
           <CheckCircle2 className="h-5 w-5" />
-          <AlertTitle>Claim Submitted Successfully</AlertTitle>
+          <AlertTitle>
+            {locale === 'ar' ? 'تم تقديم المطالبة بنجاح' : 'Claim Submitted Successfully'}
+          </AlertTitle>
           <AlertDescription>
-            Claim <strong>{submittedClaimId}</strong> has been accepted and is now
-            <strong> Under AI Review</strong>.
-            <br />
-            The AI system will analyze the claim and provide a <em>recommendation</em> (not a final decision).
-            A human reviewer will make the final adjudication.
-            <br />
-            You will be redirected to the claims list shortly.
+            {locale === 'ar' ? (
+              <>
+                المطالبة <strong>{submittedClaimId}</strong> تم قبولها وهي الآن
+                <strong> قيد مراجعة الذكاء الاصطناعي</strong>.
+                <br />
+                سيقوم نظام الذكاء الاصطناعي بتحليل المطالبة وتقديم <em>توصية</em> (وليس قراراً نهائياً).
+              </>
+            ) : (
+              <>
+                Claim <strong>{submittedClaimId}</strong> has been accepted and is now
+                <strong> Under AI Review</strong>.
+                <br />
+                The AI system will analyze the claim and provide a <em>recommendation</em> (not a final decision).
+                A human reviewer will make the final adjudication.
+              </>
+            )}
           </AlertDescription>
         </Alert>
-        <div className="flex items-center gap-2 text-sm text-hcx-text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Redirecting to claims list...
+
+        {/* Provider Fraud Profile Scorecard */}
+        {profilesLoading && (
+          <div className="flex items-center gap-2 text-sm text-hcx-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {locale === 'ar' ? 'جاري تحميل ملفات المخاطر...' : 'Loading risk profiles...'}
+          </div>
+        )}
+
+        {providerProfile && (
+          <Card className={`border ${riskBg(providerProfile.risk_level)}`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="size-5 text-hcx-primary" />
+                {locale === 'ar' ? 'ملف مخاطر مقدم الخدمة' : 'Provider Fraud Profile'}
+                <span className={`ms-auto text-sm font-bold uppercase ${riskColor(providerProfile.risk_level)}`}>
+                  {providerProfile.risk_level === 'high'
+                    ? locale === 'ar' ? 'مخاطر عالية' : 'HIGH RISK'
+                    : providerProfile.risk_level === 'medium'
+                      ? locale === 'ar' ? 'مخاطر متوسطة' : 'MEDIUM RISK'
+                      : locale === 'ar' ? 'مخاطر منخفضة' : 'LOW RISK'}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'مقدم الخدمة' : 'Provider'}
+                  </span>
+                  <p className="mt-0.5 font-mono text-sm font-medium">{providerProfile.provider_id}</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'إجمالي المطالبات' : 'Total Claims'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold">{providerProfile.total_claims}</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'المطالبات المشبوهة' : 'Flagged Claims'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold text-red-600">{providerProfile.flagged_claims}</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'متوسط درجة الاحتيال' : 'Avg Fraud Score'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold">{Math.round(providerProfile.avg_fraud_score * 100)}%</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'إجمالي المبلغ' : 'Total Amount'}
+                  </span>
+                  <p className="mt-0.5 font-semibold">{formatEgp(providerProfile.total_amount_egp, locale)}</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'المبلغ المشبوه' : 'Flagged Amount'}
+                  </span>
+                  <p className="mt-0.5 font-semibold text-red-600">
+                    {formatEgp(providerProfile.flagged_amount_egp, locale)}
+                  </p>
+                </div>
+              </div>
+              {providerProfile.top_diagnosis_codes?.length > 0 && (
+                <div className="mt-3">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'أكثر التشخيصات' : 'Top Diagnosis Codes'}
+                  </span>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {providerProfile.top_diagnosis_codes.map((code) => (
+                      <span key={code} className="rounded bg-white px-2 py-0.5 text-xs font-mono border">
+                        {code}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Beneficiary Risk Profile Scorecard */}
+        {beneficiaryProfile && (
+          <Card className={`border ${riskBg(beneficiaryProfile.risk_level)}`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <User className="size-5 text-hcx-primary" />
+                {locale === 'ar' ? 'ملف مخاطر المستفيد' : 'Beneficiary Abuse Risk Profile'}
+                <span className={`ms-auto text-sm font-bold uppercase ${riskColor(beneficiaryProfile.risk_level)}`}>
+                  {beneficiaryProfile.risk_level === 'high'
+                    ? locale === 'ar' ? 'مخاطر عالية' : 'HIGH RISK'
+                    : beneficiaryProfile.risk_level === 'medium'
+                      ? locale === 'ar' ? 'مخاطر متوسطة' : 'MEDIUM RISK'
+                      : locale === 'ar' ? 'مخاطر منخفضة' : 'LOW RISK'}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'إجمالي المطالبات' : 'Total Claims'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold">{beneficiaryProfile.total_claims}</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'المطالبات المشبوهة' : 'Flagged Claims'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold text-red-600">{beneficiaryProfile.flagged_claims}</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'متوسط درجة الاحتيال' : 'Avg Fraud Score'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold">{Math.round(beneficiaryProfile.avg_fraud_score * 100)}%</p>
+                </div>
+                <div className="rounded-md bg-white/60 p-2.5">
+                  <span className="text-xs text-hcx-text-muted">
+                    {locale === 'ar' ? 'مقدمي خدمة مختلفين' : 'Distinct Providers'}
+                  </span>
+                  <p className="mt-0.5 text-lg font-bold">{beneficiaryProfile.distinct_providers}</p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-md bg-white/60 p-2.5 text-sm">
+                <span className="text-xs text-hcx-text-muted">
+                  {locale === 'ar' ? 'إجمالي المبلغ' : 'Total Amount'}
+                </span>
+                <p className="mt-0.5 font-semibold">{formatEgp(beneficiaryProfile.total_amount_egp, locale)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* No scorecards available message */}
+        {!profilesLoading && !providerProfile && !beneficiaryProfile && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>
+              {locale === 'ar' ? 'ملفات المخاطر غير متاحة' : 'Risk Profiles Unavailable'}
+            </AlertTitle>
+            <AlertDescription>
+              {locale === 'ar'
+                ? 'لا توجد بيانات كافية لعرض ملفات مخاطر مقدم الخدمة والمستفيد.'
+                : 'Insufficient data to display provider fraud and beneficiary risk profiles.'}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={() => router.push('/provider/claims')}>
+            {locale === 'ar' ? 'عرض المطالبات' : 'View Claims'}
+          </Button>
+          <Button
+            variant="default"
+            onClick={() => {
+              setAiResult(null);
+              setSubmittedClaimId(null);
+              setProviderProfile(null);
+              setBeneficiaryProfile(null);
+              form.reset();
+            }}
+          >
+            {locale === 'ar' ? 'تقديم مطالبة أخرى' : 'Submit Another Claim'}
+          </Button>
         </div>
       </div>
     );

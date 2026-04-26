@@ -753,6 +753,10 @@ export const api = {
         status: string;
         requested_at: string;
         justification?: string;
+        verdict?: string;
+        confidence?: number;
+        guidelines?: string[];
+        claim_id?: string;
       }>;
     }>('/internal/ai/bff/payer/preauth', opts);
   },
