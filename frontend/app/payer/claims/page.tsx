@@ -528,18 +528,18 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
           {renderAgentSection('Coding Validation', claimDetail.coding_result as Record<string, unknown> | null)}
           {renderAgentSection('Fraud Detection', claimDetail.fraud_result as Record<string, unknown> | null)}
           {renderAgentSection('Medical Necessity', claimDetail.necessity_result as Record<string, unknown> | null)}
-          {claimDetail.human_review_reasons && (claimDetail.human_review_reasons as string[]).length > 0 && (
+          {Array.isArray(claimDetail.human_review_reasons) && (claimDetail.human_review_reasons as string[]).length > 0 && (
             <div className="rounded-md border border-hcx-warning/30 bg-hcx-warning/5 p-2">
               <p className="text-xs font-semibold text-hcx-warning">Human Review Required</p>
-              {(claimDetail.human_review_reasons as string[]).map((r, i) => (
+              {(claimDetail.human_review_reasons as string[]).map((r: string, i: number) => (
                 <p key={i} className="text-[11px] text-hcx-text-muted">• {r}</p>
               ))}
             </div>
           )}
           {claimDetail.overall_confidence != null && (
             <p className="text-[11px] text-hcx-text-muted">
-              Overall Confidence: <span className="font-semibold">{((claimDetail.overall_confidence as number) * 100).toFixed(0)}%</span>
-              {claimDetail.processing_time_ms && ` | Processing: ${claimDetail.processing_time_ms}ms`}
+              Overall Confidence: <span className="font-semibold">{(Number(claimDetail.overall_confidence) * 100).toFixed(0)}%</span>
+              {claimDetail.processing_time_ms != null ? ` | Processing: ${String(claimDetail.processing_time_ms)}ms` : ''}
             </p>
           )}
         </div>

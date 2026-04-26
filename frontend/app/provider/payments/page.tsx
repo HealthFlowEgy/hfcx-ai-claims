@@ -38,8 +38,9 @@ type Payment = {
   settled_amount: number;
   method: string;
   reconciled: boolean;
-  status?: PaymentStatus;
-  evidence_url?: string | null;
+  status: string;
+  evidence_url: string | null;
+  status_updated_at: string;
 };
 
 const STATUS_CONFIG: Record<
@@ -71,7 +72,7 @@ export default function ProviderPaymentsPage() {
 
   const filteredPayments = useMemo(() => {
     if (statusFilter === 'all') return payments;
-    return payments.filter((p) => (p.status ?? 'initiated') === statusFilter);
+    return payments.filter((p) => (p.status || 'initiated') === statusFilter);
   }, [payments, statusFilter]);
 
   const total = useMemo(
@@ -79,11 +80,11 @@ export default function ProviderPaymentsPage() {
     [payments],
   );
   const completedCount = useMemo(
-    () => payments.filter((p) => (p.status ?? (p.reconciled ? 'completed' : 'initiated')) === 'completed').length,
+    () => payments.filter((p) => (p.status || 'initiated') === 'completed').length,
     [payments],
   );
   const completedAmount = useMemo(
-    () => payments.filter((p) => (p.status ?? (p.reconciled ? 'completed' : 'initiated')) === 'completed')
+    () => payments.filter((p) => (p.status || 'initiated') === 'completed')
       .reduce((s, p) => s + p.settled_amount, 0),
     [payments],
   );
@@ -140,7 +141,7 @@ export default function ProviderPaymentsPage() {
         header: 'Status',
         id: 'lifecycle_status',
         cell: ({ row }) => {
-          const status: PaymentStatus = row.original.status ?? (row.original.reconciled ? 'completed' : 'initiated');
+          const status = (row.original.status || (row.original.reconciled ? 'completed' : 'initiated')) as PaymentStatus;
           const config = STATUS_CONFIG[status];
           const Icon = config.icon;
           return (
@@ -155,7 +156,7 @@ export default function ProviderPaymentsPage() {
         header: tc('actions'),
         id: 'actions',
         cell: ({ row }) => {
-          const status: PaymentStatus = row.original.status ?? (row.original.reconciled ? 'completed' : 'initiated');
+          const status = (row.original.status || (row.original.reconciled ? 'completed' : 'initiated')) as PaymentStatus;
           if (status === 'initiated') {
             return (
               <Button
@@ -250,7 +251,7 @@ export default function ProviderPaymentsPage() {
           >
             {f === 'all'
               ? `All (${payments.length})`
-              : `${STATUS_CONFIG[f as PaymentStatus]?.label ?? f} (${payments.filter((p) => (p.status ?? 'initiated') === f).length})`}
+              : `${STATUS_CONFIG[f as PaymentStatus]?.label ?? f} (${payments.filter((p) => (p.status || 'initiated') === f).length})`}
           </Button>
         ))}
       </div>
@@ -260,7 +261,7 @@ export default function ProviderPaymentsPage() {
         <CardContent className="pt-4">
           <div className="flex items-center justify-between text-xs text-hcx-text-muted">
             {(['initiated', 'evidence_uploaded', 'verified', 'completed'] as PaymentStatus[]).map((s, i) => {
-              const count = payments.filter((p) => (p.status ?? 'initiated') === s).length;
+              const count = payments.filter((p) => (p.status || 'initiated') === s).length;
               return (
                 <div key={s} className="flex items-center gap-1">
                   {i > 0 && <ArrowRight className="size-3 text-border" />}
