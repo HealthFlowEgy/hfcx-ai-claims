@@ -114,21 +114,30 @@ async def node_parallel_agents(state: dict[str, Any]) -> dict[str, Any]:
 
     tasks: list[asyncio.Task] = []
     agents_enabled: list[str] = []
+    agent_timeout = getattr(settings, "agent_timeout_seconds", 30)
 
     if settings.enable_coding_agent:
         agents_enabled.append("coding")
-        tasks.append(asyncio.create_task(_run_coding(claim)))
+        tasks.append(asyncio.create_task(
+            asyncio.wait_for(_run_coding(claim), timeout=agent_timeout)
+        ))
     if settings.enable_fraud_agent:
         agents_enabled.append("fraud")
-        tasks.append(asyncio.create_task(_run_fraud(claim)))
+        tasks.append(asyncio.create_task(
+            asyncio.wait_for(_run_fraud(claim), timeout=agent_timeout)
+        ))
     if settings.enable_necessity_agent:
         agents_enabled.append("necessity")
-        tasks.append(asyncio.create_task(_run_necessity(claim)))
+        tasks.append(asyncio.create_task(
+            asyncio.wait_for(_run_necessity(claim), timeout=agent_timeout)
+        ))
 
     # SRS §2.2: MedGemma 4B Multimodal document analysis
     if settings.multimodal_enabled and claim.attachment_ids:
         agents_enabled.append("multimodal")
-        tasks.append(asyncio.create_task(_run_multimodal(claim)))
+        tasks.append(asyncio.create_task(
+            asyncio.wait_for(_run_multimodal(claim), timeout=agent_timeout)
+        ))
 
     t0 = time.monotonic()
     results = await asyncio.gather(*tasks, return_exceptions=True)

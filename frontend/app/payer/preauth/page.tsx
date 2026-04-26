@@ -146,6 +146,18 @@ export default function PayerPreAuthPage() {
         title: 'Decision submitted',
         description: `Pre-auth ${variables.requestId} marked as ${variables.decision}`,
       });
+      // BUG-02: Optimistic update — immediately reflect the decision in local state
+      queryClient.setQueryData(['payer', 'preauth'], (old: { items?: Record<string, unknown>[] } | undefined) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((item) =>
+            item.request_id === variables.requestId
+              ? { ...item, status: variables.decision, verdict: variables.decision === 'approved' ? 'necessary' : variables.decision === 'denied' ? 'not_justified' : item.verdict }
+              : item,
+          ),
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ['payer', 'preauth'] });
       setConfirmDecision(null);
       setDecisionReason('');

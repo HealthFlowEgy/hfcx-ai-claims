@@ -27,6 +27,7 @@ import { FraudGauge } from './fraud-gauge';
  * Fix #50: Clear human-readable explanations for each AI agent
  * Fix #51: Confidence calibration with color-coded thresholds and interpretation
  * Fix #52: Rule-based override indicators
+ * FEAT-03: Visual polish — accent borders, colored confidence, agent accordion borders
  *
  * SRS §DS-AI-001 through §DS-AI-005 — consolidated AI analysis display.
  */
@@ -155,33 +156,27 @@ export function AIRecommendationCard({
             <BrainCircuit className="size-5 text-hcx-primary" aria-hidden />
             <CardTitle className="text-lg">{t('recommendationBadge')}</CardTitle>
           </div>
-          <Badge variant={recBadge.variant}>{recBadge.label}</Badge>
+          {/* FEAT-03: Larger recommendation badge */}
+          <Badge variant={recBadge.variant} className="text-sm font-bold px-4 py-1">{recBadge.label}</Badge>
         </div>
         <p className="text-xs text-hcx-text-muted">{t('disclaimer')}</p>
       </CardHeader>
 
       <CardContent className="space-y-5 p-6">
-        {/* Fix #50: Human-readable summary */}
-        <div className="rounded-lg bg-muted/50 p-3">
-          <p className="text-xs font-semibold text-hcx-text-muted mb-1">AI Summary</p>
+        {/* FEAT-03: AI Summary with left blue border accent */}
+        <div className="rounded-lg bg-muted/50 border-l-4 border-hcx-primary p-3">
+          <p className="text-xs font-semibold text-hcx-primary mb-1">AI Summary</p>
           <p className="text-sm leading-relaxed">{explanation}</p>
         </div>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          {/* Fix #51: Enhanced confidence display */}
+          {/* FEAT-03: Enhanced confidence display — label + percentage on same line, color-coded */}
           <div className="space-y-1">
-            <ConfidenceBar
-              confidence={analysis.overall_confidence}
-              label={t('confidence')}
-            />
-            <div className="flex items-center justify-between text-xs">
-              <span className={cn('font-semibold', confLabel.color)}>
-                {confLabel.text} Confidence
-              </span>
-              <span className="text-hcx-text-muted">
-                {(analysis.overall_confidence * 100).toFixed(0)}%
-              </span>
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className={cn('font-semibold', confLabel.color)}>{confLabel.text} Confidence</span>
+              <span className={cn('font-bold', confLabel.color)}>{(analysis.overall_confidence * 100).toFixed(0)}%</span>
             </div>
+            <ConfidenceBar confidence={analysis.overall_confidence} />
           </div>
           {analysis.fraud?.fraud_score != null && (
             <FraudGauge
@@ -192,6 +187,19 @@ export function AIRecommendationCard({
             />
           )}
         </div>
+
+        {/* FEAT-03: Show human_review_reasons as bullet points below fraud gauge */}
+        {analysis.human_review_reasons?.length > 0 && (
+          <div className="rounded-md border border-hcx-warning/30 bg-hcx-warning/5 p-3 space-y-1">
+            <p className="text-xs font-semibold text-hcx-warning">Human Review Required</p>
+            {analysis.human_review_reasons.map((reason, i) => (
+              <p key={i} className="text-xs text-hcx-warning flex items-start gap-1.5">
+                <span className="shrink-0 mt-0.5">&bull;</span>
+                <span>{reason}</span>
+              </p>
+            ))}
+          </div>
+        )}
 
         {/* Fix #52: Rule-based override indicator */}
         {ruleOverrides.active && (
@@ -221,18 +229,20 @@ export function AIRecommendationCard({
 
         <Separator />
 
+        {/* FEAT-03: Section title — bold, uppercase, tracking-wider */}
         <div className="space-y-3">
-          <h4 className="text-sm font-semibold text-hcx-text">{t('reasoning')}</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-hcx-text-muted">AI Reasoning</h4>
 
+          {/* FEAT-03: Colored left border per agent accordion */}
           <AgentAccordion
             title={t('eligibility')}
             Icon={ShieldCheck}
             open={open.eligibility}
             onToggle={() => setOpen((s) => ({ ...s, eligibility: !s.eligibility }))}
+            borderColor="border-l-2 border-hcx-success"
           >
             {analysis.eligibility ? (
               <div className="space-y-2 text-sm">
-                {/* Fix #50: Human-readable eligibility explanation */}
                 <p className="text-xs leading-relaxed bg-muted/50 rounded p-2">
                   {analysis.eligibility.is_eligible
                     ? `Patient is confirmed eligible with ${analysis.eligibility.coverage_type || 'standard'} coverage. All eligibility criteria have been met.`
@@ -267,10 +277,10 @@ export function AIRecommendationCard({
             Icon={Sparkles}
             open={open.coding}
             onToggle={() => setOpen((s) => ({ ...s, coding: !s.coding }))}
+            borderColor="border-l-2 border-hcx-primary"
           >
             {analysis.coding ? (
               <div className="space-y-2 text-sm">
-                {/* Fix #50: Human-readable coding explanation */}
                 <p className="text-xs leading-relaxed bg-muted/50 rounded p-2">
                   {analysis.coding.all_codes_valid
                     ? 'All submitted ICD-10 and CPT codes have been validated. No coding discrepancies were found.'
@@ -316,10 +326,10 @@ export function AIRecommendationCard({
             Icon={BrainCircuit}
             open={open.fraud}
             onToggle={() => setOpen((s) => ({ ...s, fraud: !s.fraud }))}
+            borderColor="border-l-2 border-hcx-danger"
           >
             {analysis.fraud ? (
               <div className="space-y-2 text-sm">
-                {/* Fix #50: Human-readable fraud explanation */}
                 <p className="text-xs leading-relaxed bg-muted/50 rounded p-2">
                   {(analysis.fraud.fraud_score ?? 0) < 0.3
                     ? 'This claim shows no significant fraud indicators. Billing patterns are consistent with expected norms for this type of service.'
@@ -364,10 +374,10 @@ export function AIRecommendationCard({
             Icon={Stethoscope}
             open={open.necessity}
             onToggle={() => setOpen((s) => ({ ...s, necessity: !s.necessity }))}
+            borderColor="border-l-2 border-purple-500"
           >
             {analysis.necessity ? (
               <div className="space-y-2 text-sm">
-                {/* Fix #50: Human-readable necessity explanation */}
                 <p className="text-xs leading-relaxed bg-muted/50 rounded p-2">
                   {analysis.necessity.is_medically_necessary
                     ? 'The requested services are consistent with the diagnosis and appear medically necessary based on established clinical guidelines.'
@@ -400,7 +410,7 @@ export function AIRecommendationCard({
               .filter(([k]) => k !== 'app_version')
               .slice(0, 2)
               .map(([k, v]) => `${k}: ${v}`)
-              .join(' • ') || t('modelVersion')}
+              .join(' \u2022 ') || t('modelVersion')}
           </span>
           <span className="flex items-center gap-1.5">
             <Clock className="size-3.5" aria-hidden />
@@ -418,15 +428,17 @@ function AgentAccordion({
   open,
   onToggle,
   children,
+  borderColor,
 }: {
   title: string;
   Icon: React.ComponentType<{ className?: string }>;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  borderColor?: string;
 }) {
   return (
-    <div className="rounded-lg border border-border">
+    <div className={cn('rounded-lg border border-border', borderColor)}>
       <button
         type="button"
         onClick={onToggle}

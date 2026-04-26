@@ -143,6 +143,9 @@ class Settings(BaseSettings):
     multimodal_enabled: bool = False
     multimodal_model: str = "ollama/medgemma-4b-multimodal"
 
+    # ── Agent Timeout (FEAT-06) ────────────────────────────────────────
+    agent_timeout_seconds: int = 30  # per-agent timeout in parallel stage
+
     # ── Feature Flags ────────────────────────────────────────────────────
     enable_fraud_agent: bool = True
     enable_coding_agent: bool = True

@@ -1333,24 +1333,43 @@ async def siu_investigations(
                 provider_id="HCP-EG-ALEX-014",
             ),
         ]
-    return [
-        InvestigationCase(
-            case_id=f"INV-{r.claim_id[-6:] if r.claim_id else '000000'}",
+    cases: list[InvestigationCase] = []
+    for r in rows:
+        cid = f"INV-{r.claim_id[-6:] if r.claim_id else '000000'}"
+        assigned = await _get_assignment(cid) or "Unassigned"
+        cases.append(InvestigationCase(
+            case_id=cid,
             correlation_id=r.correlation_id,
-            assigned_to=_investigation_assignments.get(
-                f"INV-{r.claim_id[-6:] if r.claim_id else '000000'}", "Unassigned"
-            ),
+            assigned_to=assigned,
             workflow_status="open",
             opened_on=r.created_at,
             financial_impact_egp=float(r.total_amount or 0),
             provider_id=r.provider_id or "unknown",
-        )
-        for r in rows
-    ]
+        ))
+    return cases
 
 
-# ISSUE-056: In-memory assignment tracking until ai_investigation table is created
-_investigation_assignments: dict[str, str] = {}
+# BUG-06: Redis-backed investigation assignments (survives restarts)
+_ASSIGN_PREFIX = "siu:assign:"
+
+
+async def _get_assignment(case_id: str) -> str | None:
+    """Fetch investigation assignment from Redis."""
+    try:
+        svc = RedisService()
+        val = await svc.get(f"{_ASSIGN_PREFIX}{case_id}")
+        return val if val else None
+    except Exception:
+        return None
+
+
+async def _set_assignment(case_id: str, assigned_to: str) -> None:
+    """Store investigation assignment in Redis with 90-day TTL."""
+    try:
+        svc = RedisService()
+        await svc.setex(f"{_ASSIGN_PREFIX}{case_id}", 90 * 86400, assigned_to)
+    except Exception as exc:
+        log.warning("redis_assign_failed", case_id=case_id, error=str(exc))
 
 
 class AssignInvestigationRequest(BaseModel):
@@ -1365,8 +1384,8 @@ async def assign_investigation(
     req: AssignInvestigationRequest,
     _: str = Depends(verify_service_jwt),
 ) -> dict[str, str]:
-    """ISSUE-056: Assign an investigation case to an analyst."""
-    _investigation_assignments[case_id] = req.assigned_to
+    """BUG-06: Assign an investigation case to an analyst (Redis-persisted)."""
+    await _set_assignment(case_id, req.assigned_to)
     return {"case_id": case_id, "assigned_to": req.assigned_to}
 
 
@@ -3160,3 +3179,33 @@ async def _load_payer_decisions_cache() -> None:
 @router.on_event("startup")
 async def _on_startup() -> None:
     await _load_payer_decisions_cache()
+
+
+# ─── BFF: Shared Payer Registry (BUG-08) ──────────────────────────────────
+# Provides a single source of truth for payer IDs + names used across portals.
+# Phase 1: static list. Phase 2: backed by HCX participant registry.
+
+class PayerEntry(BaseModel):
+    payer_id: str
+    name: str
+    active: bool = True
+
+
+_PAYER_REGISTRY: list[PayerEntry] = [
+    PayerEntry(payer_id="GIG", name="GIG Insurance - Egypt"),
+    PayerEntry(payer_id="AXA", name="AXA Insurance - Egypt"),
+    PayerEntry(payer_id="Allianz", name="Allianz Insurance - Egypt"),
+    PayerEntry(payer_id="Orient", name="Orient Insurance - Egypt"),
+    PayerEntry(payer_id="MetLife", name="MetLife Insurance - Egypt"),
+    PayerEntry(payer_id="Mohandes", name="Mohandes Insurance - Egypt"),
+    PayerEntry(payer_id="MISR-INSURANCE-001", name="Misr Insurance"),
+    PayerEntry(payer_id="ALLIANZ-EG-001", name="Allianz Egypt"),
+]
+
+
+@router.get("/bff/payers", response_model=list[PayerEntry])
+async def list_payers(
+    _: str = Depends(verify_service_jwt),
+) -> list[PayerEntry]:
+    """BUG-08: Shared payer registry — single source of truth."""
+    return _PAYER_REGISTRY

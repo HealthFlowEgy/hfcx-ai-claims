@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -108,16 +108,26 @@ export default function NewClaimPage() {
   const locale = useLocale();
 
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
   const [progressMsg, setProgressMsg] = useState<string>('');
   const [submittedClaimId, setSubmittedClaimId] = useState<string | null>(null);
 
+  // FEAT-04: Detect resubmit mode from query params
+  const isResubmit = searchParams.get('resubmit') === 'true';
+  const originalClaimId = searchParams.get('original_id') ?? '';
+  const resubmitClaimType = searchParams.get('claim_type') ?? 'outpatient';
+  const resubmitAmount = Number(searchParams.get('amount') ?? 0);
+  const resubmitReason = searchParams.get('reason') ?? '';
+
   const form = useForm<ClaimFormValues>({
     resolver: zodResolver(claimSchema),
     defaultValues: {
       patient_nid: '',
-      claim_type: 'outpatient',
+      claim_type: (isResubmit && ['outpatient', 'inpatient', 'pharmacy', 'lab', 'dental', 'vision'].includes(resubmitClaimType)
+        ? resubmitClaimType
+        : 'outpatient') as ClaimFormValues['claim_type'],
       payer_id: 'GIG',
       provider_id: PROVIDER_ID, // Fix #3: auto-assigned
       service_lines: [
@@ -126,10 +136,10 @@ export default function NewClaimPage() {
           icd10_code: '',
           procedure_code: '',
           quantity: 1,
-          amount: 0,
+          amount: isResubmit ? resubmitAmount : 0,
         },
       ],
-      clinical_notes: '',
+      clinical_notes: isResubmit ? `Resubmission of ${originalClaimId}. Original denial reason: ${resubmitReason}` : '',
       prescription_id: '',
     },
   });
@@ -375,6 +385,19 @@ export default function NewClaimPage() {
       <header>
         <h1 className="text-2xl font-bold text-hcx-text">{t('title')}</h1>
       </header>
+
+      {/* FEAT-04: Resubmit banner */}
+      {isResubmit && (
+        <Alert variant="info">
+          <AlertCircle className="h-5 w-5" />
+          <AlertTitle>Resubmission</AlertTitle>
+          <AlertDescription>
+            You are resubmitting claim <strong>{originalClaimId}</strong>.
+            {resubmitReason && <> Original denial reason: <em>{resubmitReason}</em>.</>}
+            {' '}Please correct the issues and submit.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {submit.isError && (
         <Alert variant="destructive">

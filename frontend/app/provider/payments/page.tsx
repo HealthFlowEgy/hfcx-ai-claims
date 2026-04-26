@@ -171,7 +171,7 @@ export default function ProviderPaymentsPage() {
                 ) : (
                   <FileUp className="size-3" />
                 )}
-                Upload Evidence
+                Submit Evidence
               </Button>
             );
           }

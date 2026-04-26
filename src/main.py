@@ -73,6 +73,13 @@ async def lifespan(app: FastAPI):
         await seed_chromadb_if_empty()
     except Exception as exc:  # pragma: no cover
         log.warning("chromadb_seed_failed", error=str(exc))
+    # FEAT-06: Warm up LiteLLM connection pool so first request is not slow.
+    try:
+        llm = LLMService()
+        await llm.health_check()
+        log.info("litellm_warmup_ok")
+    except Exception as exc:  # pragma: no cover
+        log.warning("litellm_warmup_failed", error=str(exc))
     yield
     # Shutdown: stop audit flusher first so pending audit rows drain, then
     # close shared HTTP clients, engine, redis pool, coordinator.
@@ -107,7 +114,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 

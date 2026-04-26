@@ -188,7 +188,7 @@ Date: ${new Date().toLocaleDateString('en-EG')}`;
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => router.push('/provider/claims/new')}
+                    onClick={() => router.push(`/provider/claims/new?resubmit=true&original_id=${encodeURIComponent(claim.claim_id)}&claim_type=${encodeURIComponent(claim.claim_type)}&amount=${claim.total_amount}&reason=${encodeURIComponent(claim.reason)}`)}
                     title="Resubmit this claim with corrections"
                   >
                     <RefreshCw className="size-4" aria-hidden />

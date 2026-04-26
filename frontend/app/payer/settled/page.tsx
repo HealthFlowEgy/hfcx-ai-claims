@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Download, FileText } from 'lucide-react';
 
@@ -25,7 +25,27 @@ export default function PayerSettledPage() {
   const tc = useTranslations('claim');
   const tco = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'approved' | 'denied' | 'settled' | 'paid'>('all');
+
+  // BUG-09 + FEAT-01: Confirm payment mutation for payer role
+  const confirmPayment = useMutation({
+    mutationFn: async (claimId: string) => {
+      const res = await fetch(`/api/proxy/internal/ai/bff/payer/claims/${claimId}/confirm-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error('Failed to confirm payment');
+      return res.json();
+    },
+    onSuccess: (_data, claimId) => {
+      queryClient.invalidateQueries({ queryKey: ['payer', 'settled'] });
+      toast({ title: 'Payment Confirmed', description: `Payment for ${claimId} confirmed.`, variant: 'success' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to confirm payment.', variant: 'destructive' });
+    },
+  });
 
   const { data } = useQuery({
     queryKey: ['payer', 'settled'],
@@ -149,6 +169,27 @@ export default function PayerSettledPage() {
             : '—',
       },
       {
+        // BUG-09 + FEAT-01: Confirm Payment action for payer
+        header: 'Action',
+        id: 'confirm_payment',
+        cell: ({ row }) => {
+          if (row.original.status === 'approved') {
+            return (
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1"
+                onClick={() => confirmPayment.mutate(row.original.claim_id)}
+                disabled={confirmPayment.isPending}
+              >
+                Confirm Payment
+              </Button>
+            );
+          }
+          return null;
+        },
+      },
+      {
         // Fix #31: EOB download column
         header: 'EOB',
         id: 'eob',
@@ -164,7 +205,7 @@ export default function PayerSettledPage() {
         ),
       },
     ],
-    [locale, tc, tco],
+    [locale, tc, tco, confirmPayment],
   );
 
   // Summary stats

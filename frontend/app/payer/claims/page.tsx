@@ -78,7 +78,17 @@ export default function PayerClaimsQueuePage() {
   });
 
   const columns = useMemo(() => {
-    const items = data?.items ?? [];
+    // BUG-10: Deduplicate by claim_id — keep the latest (most complete) entry
+    // to prevent optimistic placeholder + real record from both appearing.
+    const raw = data?.items ?? [];
+    const seen = new Map<string, ClaimSummary>();
+    for (const c of raw) {
+      const existing = seen.get(c.claim_id);
+      if (!existing || (c.ai_risk_score != null && existing.ai_risk_score == null)) {
+        seen.set(c.claim_id, c);
+      }
+    }
+    const items = Array.from(seen.values());
     return {
       new: items.filter((c) => COLUMN_STATUSES.new.includes(c.status)),
       ai: items.filter((c) => COLUMN_STATUSES.ai.includes(c.status)),
@@ -402,19 +412,52 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
   const [error, setError] = useState<string | null>(null);
   const [claimDetail, setClaimDetail] = useState<Record<string, unknown> | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [polling, setPolling] = useState(false);
 
-  // Fix #9: Auto-fetch persisted AI explainability data on mount
+  // BUG-03 + FEAT-02: Auto-fetch persisted AI analysis on mount.
+  // If status is 'under_ai_review', auto-poll every 5s until analysis completes.
   useEffect(() => {
     if (!claim.correlation_id) return;
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const fetchDetail = async () => {
+      try {
+        const r = await fetch(`/api/proxy/internal/ai/bff/claims/${claim.correlation_id}`);
+        if (!r.ok || cancelled) return;
+        const data = await r.json();
+        if (cancelled) return;
+        setClaimDetail(data);
+        // Stop polling once we have analysis results (status is no longer under_ai_review)
+        const status = data?.status ?? data?.ai_recommendation;
+        if (status && status !== 'under_ai_review') {
+          setPolling(false);
+          if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
+        }
+      } catch {
+        // ignore fetch errors during polling
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    };
+
     setDetailLoading(true);
-    fetch(`/api/proxy/internal/ai/bff/claims/${claim.correlation_id}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) setClaimDetail(data);
-      })
-      .catch(() => {})
-      .finally(() => setDetailLoading(false));
-  }, [claim.correlation_id]);
+    fetchDetail();
+
+    // BUG-03: If claim is still under AI review, poll every 5 seconds
+    if (claim.status === 'under_ai_review' || claim.status === 'submitted') {
+      setPolling(true);
+      intervalId = setInterval(fetchDetail, 5000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [claim.correlation_id, claim.status]);
 
   const runAnalysis = useCallback(async () => {
     setLoading(true);
@@ -455,31 +498,54 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
     }
   }, [claim]);
 
+  // If manual run produced a result, show it directly
   if (aiResult) {
     return <AIRecommendationCard analysis={aiResult} />;
   }
 
-  // Helper to render a JSONB agent result section
-  const renderAgentSection = (title: string, data: Record<string, unknown> | null | undefined) => {
-    if (!data) return null;
-    return (
-      <div className="rounded-md border border-border p-2 space-y-1">
-        <p className="text-xs font-semibold text-hcx-text">{title}</p>
-        {Object.entries(data).map(([k, v]) => (
-          <div key={k} className="flex justify-between text-[11px]">
-            <span className="text-hcx-text-muted">{k.replace(/_/g, ' ')}</span>
-            <span className="font-medium text-hcx-text max-w-[60%] truncate text-right">
-              {typeof v === 'object' ? JSON.stringify(v) : String(v ?? '-')}
-            </span>
-          </div>
-        ))}
-      </div>
-    );
-  };
+  // FEAT-02: Normalize claimDetail into AICoordinateResponse for AIRecommendationCard
+  const normalizedAiData: AICoordinateResponse | null = claimDetail ? {
+    correlation_id: String(claimDetail.correlation_id ?? claim.correlation_id),
+    claim_id: String(claimDetail.claim_id ?? claim.claim_id),
+    adjudication_decision: (claimDetail.ai_recommendation as AICoordinateResponse['adjudication_decision']) ?? 'pended',
+    overall_confidence: Number(claimDetail.overall_confidence ?? 0),
+    requires_human_review: Boolean(claimDetail.requires_human_review),
+    human_review_reasons: (claimDetail.human_review_reasons as string[]) ?? [],
+    eligibility: (claimDetail.eligibility_result as AICoordinateResponse['eligibility']) ?? null,
+    coding: (claimDetail.coding_result as AICoordinateResponse['coding']) ?? null,
+    fraud: (claimDetail.fraud_result as AICoordinateResponse['fraud']) ?? null,
+    necessity: (claimDetail.necessity_result as AICoordinateResponse['necessity']) ?? null,
+    processing_time_ms: Number(claimDetail.processing_time_ms ?? 0),
+    model_versions: (claimDetail.model_versions as Record<string, string>) ?? {},
+    fhir_extensions: [],
+  } : null;
 
   return (
     <div className="space-y-3">
-      {claim.ai_recommendation && (
+      {/* BUG-03: Show pulsing skeleton when AI analysis is still in progress */}
+      {polling && (
+        <div className="flex items-center gap-2 rounded-lg border border-hcx-primary/20 bg-hcx-primary-light/20 p-3">
+          <Loader2 className="size-4 animate-spin text-hcx-primary" />
+          <div>
+            <p className="text-sm font-medium text-hcx-primary">AI analysis in progress...</p>
+            <p className="text-xs text-hcx-text-muted">Results will appear automatically when ready.</p>
+          </div>
+        </div>
+      )}
+
+      {detailLoading && !polling && (
+        <div className="flex items-center gap-2 text-xs text-hcx-text-muted">
+          <Loader2 className="size-3 animate-spin" /> Loading AI analysis details...
+        </div>
+      )}
+
+      {/* FEAT-02: Render claimDetail through AIRecommendationCard instead of flat key/value dump */}
+      {normalizedAiData && normalizedAiData.overall_confidence > 0 && (
+        <AIRecommendationCard analysis={normalizedAiData} />
+      )}
+
+      {/* Fallback: show recommendation badge if no full analysis yet */}
+      {!normalizedAiData && claim.ai_recommendation && (
         <div className="rounded-lg border border-hcx-primary/20 bg-hcx-primary-light/30 p-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">{t('recommendationBadge')}</span>
@@ -487,7 +553,6 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
               {claim.ai_recommendation}
             </span>
           </div>
-          {/* Fix #25: AI confidence score visible */}
           {claim.ai_risk_score != null && (
             <div className="mt-2">
               <div className="flex items-center justify-between text-xs text-hcx-text-muted">
@@ -515,36 +580,6 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
         </div>
       )}
 
-      {/* Fix #9: Show persisted AI explainability data */}
-      {detailLoading && (
-        <div className="flex items-center gap-2 text-xs text-hcx-text-muted">
-          <Loader2 className="size-3 animate-spin" /> Loading AI analysis details...
-        </div>
-      )}
-      {claimDetail && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-hcx-text">AI Agent Results</p>
-          {renderAgentSection('Eligibility', claimDetail.eligibility_result as Record<string, unknown> | null)}
-          {renderAgentSection('Coding Validation', claimDetail.coding_result as Record<string, unknown> | null)}
-          {renderAgentSection('Fraud Detection', claimDetail.fraud_result as Record<string, unknown> | null)}
-          {renderAgentSection('Medical Necessity', claimDetail.necessity_result as Record<string, unknown> | null)}
-          {Array.isArray(claimDetail.human_review_reasons) && (claimDetail.human_review_reasons as string[]).length > 0 && (
-            <div className="rounded-md border border-hcx-warning/30 bg-hcx-warning/5 p-2">
-              <p className="text-xs font-semibold text-hcx-warning">Human Review Required</p>
-              {(claimDetail.human_review_reasons as string[]).map((r: string, i: number) => (
-                <p key={i} className="text-[11px] text-hcx-text-muted">• {r}</p>
-              ))}
-            </div>
-          )}
-          {claimDetail.overall_confidence != null && (
-            <p className="text-[11px] text-hcx-text-muted">
-              Overall Confidence: <span className="font-semibold">{(Number(claimDetail.overall_confidence) * 100).toFixed(0)}%</span>
-              {claimDetail.processing_time_ms != null ? ` | Processing: ${String(claimDetail.processing_time_ms)}ms` : ''}
-            </p>
-          )}
-        </div>
-      )}
-
       <Button
         variant="outline"
         className="w-full"
@@ -557,7 +592,7 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
             Running AI Analysis...
           </>
         ) : (
-          claimDetail ? 'Re-run Full AI Analysis' : 'Run Full AI Analysis'
+          (normalizedAiData || claimDetail) ? 'Re-run Full AI Analysis' : 'Run Full AI Analysis'
         )}
       </Button>
 

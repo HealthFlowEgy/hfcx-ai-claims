@@ -54,15 +54,16 @@ export default function PayerFraudPage() {
 
   const { data } = useQuery({
     queryKey: ['payer', 'fraud'],
-    queryFn: () => api.listClaims({ portal: 'siu', limit: 200 }),
+    queryFn: () => api.listClaims({ portal: 'payer', limit: 200 }),
   });
 
   const flagged = useMemo(() => {
+    // BUG-07: Show all claims with risk score >= 0.4 (medium+high)
     const items = (data?.items ?? []).filter(
-      (c) => (c.ai_risk_score ?? 0) >= 0.6,
+      (c) => (c.ai_risk_score ?? 0) >= 0.4,
     );
-    if (filterStatus === 'high') return items.filter((c) => (c.ai_risk_score ?? 0) >= 0.8);
-    if (filterStatus === 'medium') return items.filter((c) => (c.ai_risk_score ?? 0) < 0.8);
+    if (filterStatus === 'high') return items.filter((c) => (c.ai_risk_score ?? 0) >= 0.7);
+    if (filterStatus === 'medium') return items.filter((c) => (c.ai_risk_score ?? 0) >= 0.4 && (c.ai_risk_score ?? 0) < 0.7);
     return items;
   }, [data, filterStatus]);
 
