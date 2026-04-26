@@ -13,7 +13,8 @@ import { Separator } from '@/components/ui/separator';
 import { ClaimCard } from '@/components/shared/claim-card';
 import { ClaimStatusBadge } from '@/components/shared/claim-status-badge';
 import { AIRecommendationCard } from '@/components/shared/ai-recommendation-card';
-import { api } from '@/lib/api';
+import { api, normalizeClaimDetail } from '@/lib/api';
+import type { ClaimDetailPayload } from '@/lib/api';
 import type { AICoordinateResponse, ClaimStatus, ClaimSummary } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -198,12 +199,17 @@ export default function PayerClaimsQueuePage() {
 
       <div
         className={cn(
-          'grid gap-4 transition-all',
-          selected ? 'grid-cols-1 lg:grid-cols-[2fr_3fr]' : 'grid-cols-1',
+          'grid gap-5 transition-all',
+          selected ? 'grid-cols-1 lg:grid-cols-[1fr_2fr]' : 'grid-cols-1',
         )}
       >
         {/* Kanban */}
-        <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className={cn(
+          'grid min-w-0 gap-3',
+          selected
+            ? 'grid-cols-1 md:grid-cols-2'
+            : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-4',
+        )}>
           <KanbanColumn
             title={t('new')}
             items={columns.new}
@@ -244,62 +250,63 @@ export default function PayerClaimsQueuePage() {
 
         {/* Detail panel */}
         {selected && selectedClaim && !batchMode && (
-          <Card className="h-fit">
-            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-              <div>
-                <CardTitle className="font-mono text-base">
-                  {selectedClaim.claim_id}
-                </CardTitle>
-                <div className="mt-1 flex items-center gap-2">
-                  <ClaimStatusBadge status={selectedClaim.status} size="sm" />
-                  <span className="text-xs text-hcx-text-muted">
-                    {selectedClaim.provider_id}
-                  </span>
-                  {/* Fix #25: AI confidence score visible */}
-                  {selectedClaim.ai_risk_score != null && (
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-0.5 text-xs font-semibold',
-                        selectedClaim.ai_risk_score > 0.7
-                          ? 'bg-hcx-danger/10 text-hcx-danger'
-                          : selectedClaim.ai_risk_score > 0.4
-                            ? 'bg-hcx-warning/10 text-hcx-warning'
-                            : 'bg-hcx-success/10 text-hcx-success',
-                      )}
-                    >
-                      AI Confidence: {((1 - selectedClaim.ai_risk_score) * 100).toFixed(0)}%
+          <div className="h-fit space-y-4">
+            {/* Claim header card */}
+            <Card className="overflow-hidden border-0 shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-mono text-sm font-bold text-slate-800">
+                      {selectedClaim.claim_id}
                     </span>
-                  )}
+                    <ClaimStatusBadge status={selectedClaim.status} size="sm" />
+                  </div>
+                  <div className="flex items-center gap-3 text-[12px] text-slate-500">
+                    <span>{selectedClaim.provider_id}</span>
+                    {selectedClaim.ai_risk_score != null && (
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                          selectedClaim.ai_risk_score > 0.7
+                            ? 'bg-red-50 text-red-600'
+                            : selectedClaim.ai_risk_score > 0.4
+                              ? 'bg-amber-50 text-amber-600'
+                              : 'bg-emerald-50 text-emerald-600',
+                        )}
+                      >
+                        Risk: {(selectedClaim.ai_risk_score * 100).toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSelected(null)}
+                  aria-label={tc('close')}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSelected(null)}
-                aria-label={tc('close')}
-              >
-                <X className="size-4" />
-              </Button>
-            </CardHeader>
-            <Separator />
-            <CardContent className="space-y-4 p-4">
-              {/* AI Analysis Section */}
-              <AIAnalysisPanel claim={selectedClaim} />
+            </Card>
 
-              <Separator />
+            {/* AI Analysis */}
+            <AIAnalysisPanel claim={selectedClaim} />
 
-              {/* Fix #28: Claim history */}
-              <ClaimHistory claim={selectedClaim} />
+            {/* Claim history */}
+            <Card className="border-0 shadow-sm">
+              <CardContent className="p-4">
+                <ClaimHistory claim={selectedClaim} />
+              </CardContent>
+            </Card>
 
-              <Separator />
-
-              {/* Decision Panel — Fix #26: Override with reason */}
-              <DecisionPanel
-                claim={selectedClaim}
-                onSubmitted={() => setSelected(null)}
-              />
-            </CardContent>
-          </Card>
+            {/* Decision Panel */}
+            <DecisionPanel
+              claim={selectedClaim}
+              onSubmitted={() => setSelected(null)}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -326,26 +333,28 @@ function KanbanColumn({
   return (
     <div
       className={cn(
-        'flex min-h-[200px] flex-col gap-2 rounded-lg border bg-card/40 p-2',
+        'flex min-h-[180px] flex-col gap-1.5 rounded-xl border bg-slate-50/80 p-2',
         accent,
       )}
     >
-      <div className="flex items-center justify-between px-1 text-sm">
-        <span className="font-semibold">{title}</span>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-hcx-text-muted">
+      <div className="flex items-center justify-between px-1 py-1">
+        <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500">
+          {title}
+        </span>
+        <span className="flex size-5 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
           {items.length}
         </span>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {items.map((c) => (
           <div key={c.claim_id} className="relative">
             {batchMode && (
-              <div className="absolute top-2 left-2 z-10">
+              <div className="absolute top-2 start-2 z-10">
                 <input
                   type="checkbox"
                   checked={batchSelected?.has(c.claim_id) ?? false}
                   onChange={() => onSelect(c.claim_id)}
-                  className="size-4"
+                  className="size-4 accent-hcx-primary"
                 />
               </div>
             )}
@@ -410,7 +419,7 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [claimDetail, setClaimDetail] = useState<Record<string, unknown> | null>(null);
+  const [claimDetail, setClaimDetail] = useState<ClaimDetailPayload | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [polling, setPolling] = useState(false);
 
@@ -423,9 +432,7 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
 
     const fetchDetail = async () => {
       try {
-        const r = await fetch(`/api/proxy/internal/ai/bff/claims/${claim.correlation_id}`);
-        if (!r.ok || cancelled) return;
-        const data = await r.json();
+        const data = await api.claimDetail(claim.correlation_id);
         if (cancelled) return;
         setClaimDetail(data);
         // Stop polling once we have analysis results (status is no longer under_ai_review)
@@ -504,21 +511,10 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
   }
 
   // FEAT-02: Normalize claimDetail into AICoordinateResponse for AIRecommendationCard
-  const normalizedAiData: AICoordinateResponse | null = claimDetail ? {
-    correlation_id: String(claimDetail.correlation_id ?? claim.correlation_id),
-    claim_id: String(claimDetail.claim_id ?? claim.claim_id),
-    adjudication_decision: (claimDetail.ai_recommendation as AICoordinateResponse['adjudication_decision']) ?? 'pended',
-    overall_confidence: Number(claimDetail.overall_confidence ?? 0),
-    requires_human_review: Boolean(claimDetail.requires_human_review),
-    human_review_reasons: (claimDetail.human_review_reasons as string[]) ?? [],
-    eligibility: (claimDetail.eligibility_result as AICoordinateResponse['eligibility']) ?? null,
-    coding: (claimDetail.coding_result as AICoordinateResponse['coding']) ?? null,
-    fraud: (claimDetail.fraud_result as AICoordinateResponse['fraud']) ?? null,
-    necessity: (claimDetail.necessity_result as AICoordinateResponse['necessity']) ?? null,
-    processing_time_ms: Number(claimDetail.processing_time_ms ?? 0),
-    model_versions: (claimDetail.model_versions as Record<string, string>) ?? {},
-    fhir_extensions: [],
-  } : null;
+  // Uses the typed normalizeClaimDetail() which correctly maps _result suffix keys.
+  const normalizedAiData: AICoordinateResponse | null = claimDetail
+    ? normalizeClaimDetail(claimDetail)
+    : null;
 
   return (
     <div className="space-y-3">
@@ -680,8 +676,9 @@ function DecisionPanel({
   const onClickDecision = useCallback((next: Decision) => setDecision(next), []);
 
   return (
-    <div className="sticky bottom-0 space-y-3 rounded-lg border border-border bg-card p-3">
-      <p className="text-sm font-semibold text-hcx-text">{t('decisionPanel')}</p>
+    <Card className="sticky bottom-0 overflow-hidden border-0 shadow-sm">
+    <div className="space-y-3 p-4">
+      <p className="text-[12px] font-bold uppercase tracking-wider text-slate-500">{t('decisionPanel')}</p>
       <div className="grid grid-cols-3 gap-2">
         <Button
           variant={decision === 'approve' ? 'success' : 'outline'}
@@ -733,7 +730,7 @@ function DecisionPanel({
         </p>
       )}
       <Button
-        className="w-full"
+        className="w-full bg-gradient-to-r from-hcx-primary to-hcx-primary/80 text-white hover:from-hcx-primary/90 hover:to-hcx-primary/70"
         disabled={!decision || submit.isPending || (isOverride && !overrideReason.trim())}
         onClick={() => submit.mutate()}
         aria-busy={submit.isPending}
@@ -741,5 +738,6 @@ function DecisionPanel({
         {submit.isPending ? '...' : t('submitDecision')}
       </Button>
     </div>
+    </Card>
   );
 }

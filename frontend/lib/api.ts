@@ -102,7 +102,70 @@ async function request<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Full claim detail payload from GET /bff/claims/{correlation_id}.
+ * Mirrors backend ClaimDetailResponse exactly.
+ */
+export interface ClaimDetailPayload {
+  claim_id: string;
+  correlation_id: string;
+  patient_nid_masked: string;
+  provider_id: string;
+  payer_id: string;
+  claim_type: string;
+  total_amount: number;
+  status: string;
+  ai_risk_score: number | null;
+  ai_recommendation: string | null;
+  submitted_at: string;
+  decided_at: string | null;
+  eligibility_result: Record<string, unknown> | null;
+  coding_result: Record<string, unknown> | null;
+  fraud_result: Record<string, unknown> | null;
+  necessity_result: Record<string, unknown> | null;
+  requires_human_review: boolean;
+  human_review_reasons: string[];
+  overall_confidence: number | null;
+  processing_time_ms: number | null;
+  model_versions: Record<string, string> | null;
+}
+
+/**
+ * Normalize a ClaimDetailPayload (from the BFF detail endpoint)
+ * into the AICoordinateResponse shape expected by AIRecommendationCard.
+ *
+ * NOTE: The detail endpoint uses `*_result` keys (eligibility_result,
+ * coding_result, fraud_result, necessity_result) whereas the coordinator
+ * endpoint uses bare keys (eligibility, coding, fraud, necessity).
+ * This function handles the _result suffix correctly.
+ */
+export function normalizeClaimDetail(
+  detail: ClaimDetailPayload,
+): AICoordinateResponse {
+  return {
+    correlation_id: detail.correlation_id ?? '',
+    claim_id: detail.claim_id ?? '',
+    adjudication_decision:
+      (detail.ai_recommendation as AdjudicationDecision) ?? 'pended',
+    overall_confidence: detail.overall_confidence ?? 0,
+    requires_human_review: detail.requires_human_review ?? true,
+    human_review_reasons: detail.human_review_reasons ?? [],
+    eligibility:
+      (detail.eligibility_result as EligibilityResult | undefined) ?? null,
+    coding:
+      (detail.coding_result as CodingValidationResult | undefined) ?? null,
+    fraud:
+      (detail.fraud_result as FraudDetectionResult | undefined) ?? null,
+    necessity:
+      (detail.necessity_result as MedicalNecessityResult | undefined) ?? null,
+    processing_time_ms: detail.processing_time_ms ?? 0,
+    model_versions: detail.model_versions ?? {},
+    fhir_extensions: [],
+  };
+}
+
 function normalizeCoordinateResponse(raw: Record<string, unknown>): AICoordinateResponse {
   return {
     correlation_id: (raw.correlation_id as string) ?? '',
@@ -358,17 +421,10 @@ export const api = {
     correlationId: string,
     opts: FetchOptions = {},
   ) {
-    return request<{
-      correlation_id: string;
-      claim_id: string;
-      status: string;
-      ai_risk_score: number | null;
-      ai_recommendation: string | null;
-      eligibility_result: Record<string, unknown> | null;
-      coding_result: Record<string, unknown> | null;
-      fraud_result: Record<string, unknown> | null;
-      necessity_result: Record<string, unknown> | null;
-    }>(`/internal/ai/bff/claims/${correlationId}`, opts);
+    return request<ClaimDetailPayload>(
+      `/internal/ai/bff/claims/${correlationId}`,
+      opts,
+    );
   },
 
   // ── Payer claim decision (CRITICAL DIRECTIVE) ─────────────────────────

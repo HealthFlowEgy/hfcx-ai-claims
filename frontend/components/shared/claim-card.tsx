@@ -10,6 +10,7 @@ import type { AdjudicationDecision, ClaimSummary } from '@/lib/types';
 
 /**
  * Claim card used in the Payer Kanban board (SRS §5.2.1).
+ * Redesigned for better visual hierarchy and information density.
  */
 export interface ClaimCardProps {
   claim: ClaimSummary;
@@ -26,11 +27,30 @@ function recommendationVariant(
   return 'muted';
 }
 
-function riskBarColor(score: number | null): string {
-  if (score == null) return 'bg-muted';
-  if (score >= 0.6) return 'bg-hcx-danger';
-  if (score >= 0.3) return 'bg-hcx-warning';
-  return 'bg-hcx-success';
+function riskInfo(score: number | null): {
+  color: string;
+  bg: string;
+  label: string;
+} {
+  if (score == null)
+    return { color: 'bg-slate-300', bg: 'bg-slate-100', label: '—' };
+  if (score >= 0.6)
+    return {
+      color: 'bg-red-500',
+      bg: 'bg-red-50',
+      label: `${Math.round(score * 100)}%`,
+    };
+  if (score >= 0.3)
+    return {
+      color: 'bg-amber-500',
+      bg: 'bg-amber-50',
+      label: `${Math.round(score * 100)}%`,
+    };
+  return {
+    color: 'bg-emerald-500',
+    bg: 'bg-emerald-50',
+    label: `${Math.round(score * 100)}%`,
+  };
 }
 
 export function ClaimCard({ claim, onClick, active }: ClaimCardProps) {
@@ -41,56 +61,105 @@ export function ClaimCard({ claim, onClick, active }: ClaimCardProps) {
         claim.ai_recommendation === 'approved'
           ? 'approve'
           : claim.ai_recommendation === 'denied'
-          ? 'deny'
-          : 'investigate',
+            ? 'deny'
+            : 'investigate',
       )
     : t('none');
+
+  const risk = riskInfo(claim.ai_risk_score);
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        'w-full text-start transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         active && 'ring-2 ring-hcx-primary',
       )}
-      aria-label={`${claim.claim_id}`}
+      aria-label={claim.claim_id}
     >
-      <Card className="hover:shadow-md">
-        <div className="space-y-2 p-3">
-          <div className="flex items-start justify-between gap-2">
-            <span className="font-mono text-xs text-hcx-text-muted">
+      <Card
+        className={cn(
+          'overflow-hidden border-slate-200 transition-shadow hover:shadow-md',
+          active && 'border-hcx-primary/50 bg-hcx-primary-light/20',
+        )}
+      >
+        <div className="p-2.5">
+          {/* Row 1: Claim ID + Badge */}
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+            <span className="truncate font-mono text-[11px] text-slate-500">
               {claim.claim_id}
             </span>
-            <Badge variant={recommendationVariant(claim.ai_recommendation)}>
+            <Badge
+              variant={recommendationVariant(claim.ai_recommendation)}
+              className="shrink-0 text-[10px] px-1.5 py-0"
+            >
               {recLabel}
             </Badge>
           </div>
-          <div className="flex items-center justify-between gap-2 text-sm">
-            <span className="font-medium">{claim.claim_type}</span>
-            <span className="font-semibold tabular-nums text-hcx-text">
+
+          {/* Row 2: Amount + Type */}
+          <div className="flex items-baseline justify-between gap-2 mb-1.5">
+            <span className="text-sm font-bold tabular-nums text-slate-800">
               {formatEgp(claim.total_amount, locale)}
             </span>
+            <span className="text-[11px] text-slate-500">
+              {claim.claim_type}
+            </span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-hcx-text-muted">
-            <span className="font-mono">{maskNationalId(claim.patient_nid_masked)}</span>
-            <span>•</span>
-            <span>{claim.provider_id}</span>
+
+          {/* Row 3: Provider + Patient */}
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-2">
+            <span className="truncate">{claim.provider_id}</span>
+            <span className="text-slate-300">&middot;</span>
+            <span className="font-mono truncate">
+              {maskNationalId(claim.patient_nid_masked)}
+            </span>
           </div>
+
+          {/* Row 4: Risk bar (labeled) */}
           {claim.ai_risk_score != null && (
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={cn('h-full', riskBarColor(claim.ai_risk_score))}
-                style={{ width: `${Math.round(claim.ai_risk_score * 100)}%` }}
-              />
+            <div className="mb-1.5">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[10px] text-slate-400">
+                  Risk
+                </span>
+                <span
+                  className={cn(
+                    'text-[10px] font-semibold tabular-nums',
+                    claim.ai_risk_score >= 0.6
+                      ? 'text-red-600'
+                      : claim.ai_risk_score >= 0.3
+                        ? 'text-amber-600'
+                        : 'text-emerald-600',
+                  )}
+                >
+                  {risk.label}
+                </span>
+              </div>
+              <div className="h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    risk.color,
+                  )}
+                  style={{
+                    width: `${Math.round(claim.ai_risk_score * 100)}%`,
+                  }}
+                />
+              </div>
             </div>
           )}
-          <div className="flex items-center gap-1 text-xs text-hcx-text-muted">
-            <Clock className="size-3" aria-hidden />
-            {new Date(claim.submitted_at).toLocaleString(
-              locale === 'ar' ? 'ar-EG' : 'en-EG',
-              { hour: '2-digit', minute: '2-digit' },
-            )}
+
+          {/* Row 5: Timestamp */}
+          <div className="flex items-center gap-1 text-[10px] text-slate-400">
+            <Clock className="size-2.5" aria-hidden />
+            <span className="tabular-nums">
+              {new Date(claim.submitted_at).toLocaleString(
+                locale === 'ar' ? 'ar-EG' : 'en-EG',
+                { hour: '2-digit', minute: '2-digit' },
+              )}
+            </span>
           </div>
         </div>
       </Card>
