@@ -153,13 +153,13 @@ export function normalizeClaimDetail(
     requires_human_review: detail.requires_human_review ?? true,
     human_review_reasons: detail.human_review_reasons ?? [],
     eligibility:
-      (detail.eligibility_result as EligibilityResult | undefined) ?? null,
+      (detail.eligibility_result as unknown as EligibilityResult | undefined) ?? null,
     coding:
-      (detail.coding_result as CodingValidationResult | undefined) ?? null,
+      (detail.coding_result as unknown as CodingValidationResult | undefined) ?? null,
     fraud:
-      (detail.fraud_result as FraudDetectionResult | undefined) ?? null,
+      (detail.fraud_result as unknown as FraudDetectionResult | undefined) ?? null,
     necessity:
-      (detail.necessity_result as MedicalNecessityResult | undefined) ?? null,
+      (detail.necessity_result as unknown as MedicalNecessityResult | undefined) ?? null,
     processing_time_ms: detail.processing_time_ms ?? 0,
     model_versions: detail.model_versions ?? {},
     fhir_extensions: [],

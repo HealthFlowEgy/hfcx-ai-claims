@@ -73,10 +73,12 @@ async def lifespan(app: FastAPI):
         await seed_chromadb_if_empty()
     except Exception as exc:  # pragma: no cover
         log.warning("chromadb_seed_failed", error=str(exc))
-    # FEAT-06: Warm up LiteLLM connection pool so first request is not slow.
+    # FEAT-06: Warm up LiteLLM shared httpx connection pool so the first
+    # request is not slow.  We only instantiate the service (which creates
+    # the shared httpx.AsyncClient) — we do NOT make an outbound call
+    # because external services may be unreachable in CI / dev.
     try:
-        llm = LLMService()
-        await llm.health_check()
+        LLMService()  # triggers _get_shared_client() classmethod
         log.info("litellm_warmup_ok")
     except Exception as exc:  # pragma: no cover
         log.warning("litellm_warmup_failed", error=str(exc))

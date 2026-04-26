@@ -202,8 +202,9 @@ class MultimodalDocumentAgent:
         }
 
         # ISSUE-053: Use public complete_vision() instead of private _get_shared_client()
+        messages_list: list[dict[Any, Any]] = payload["messages"]  # type: ignore[assignment]
         content = await self._llm.complete_vision(
-            messages=payload["messages"],
+            messages=messages_list,
             model=settings.multimodal_model,
             max_tokens=700,
             temperature=0.1,
