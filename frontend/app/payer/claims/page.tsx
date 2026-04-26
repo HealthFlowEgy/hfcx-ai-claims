@@ -8,8 +8,7 @@ import { useClaimUpdates } from '@/hooks/use-claim-updates';
 import { toast } from '@/hooks/use-toast';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { Card, CardContent } from '@/components/ui/card';
 import { ClaimCard } from '@/components/shared/claim-card';
 import { ClaimStatusBadge } from '@/components/shared/claim-status-badge';
 import { AIRecommendationCard } from '@/components/shared/ai-recommendation-card';
