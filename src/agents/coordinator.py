@@ -279,9 +279,29 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
             payer_cfg = _json_ps.loads(raw_ps)
             auto_routing = payer_cfg.get("auto_routing_enabled", True)
             auto_threshold = float(payer_cfg.get("auto_approve_threshold", 0.9))
+            auto_deny_threshold = float(
+                payer_cfg.get("auto_deny_fraud_threshold", 0.9)
+            )
+            max_auto_amount = float(
+                payer_cfg.get("max_auto_approve_amount", 50000.0)
+            )
 
-            if auto_routing and decision == AdjudicationDecision.APPROVED:
-                if overall_confidence >= auto_threshold:
+            # Auto-deny: if fraud score exceeds auto_deny threshold
+            fraud_score = getattr(state.get("fraud_result"), "fraud_score", None) or 0.0
+            if auto_routing and fraud_score >= auto_deny_threshold:
+                decision = AdjudicationDecision.DENIED
+                requires_human_review = False
+                human_review_reasons = []
+                log.info(
+                    "auto_deny_fraud_applied",
+                    claim_id=claim.claim_id,
+                    fraud_score=fraud_score,
+                    threshold=auto_deny_threshold,
+                )
+            # Auto-approve: high confidence + amount under limit
+            elif auto_routing and decision == AdjudicationDecision.APPROVED:
+                amount_ok = claim.total_amount <= max_auto_amount
+                if overall_confidence >= auto_threshold and amount_ok:
                     # High-confidence auto-approve — skip human review
                     requires_human_review = False
                     human_review_reasons = []
@@ -292,13 +312,21 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
                         threshold=auto_threshold,
                     )
                 elif not requires_human_review:
-                    # Below threshold but no explicit review reasons —
+                    # Below threshold or over amount limit —
                     # route to human review for safety
                     requires_human_review = True
-                    human_review_reasons.append(
-                        f"Confidence {overall_confidence:.2f} below auto-approve "
-                        f"threshold {auto_threshold:.2f}"
-                    )
+                    reasons = []
+                    if overall_confidence < auto_threshold:
+                        reasons.append(
+                            f"Confidence {overall_confidence:.2f} below "
+                            f"auto-approve threshold {auto_threshold:.2f}"
+                        )
+                    if not amount_ok:
+                        reasons.append(
+                            f"Amount {claim.total_amount:,.0f} EGP exceeds "
+                            f"auto-approve limit {max_auto_amount:,.0f} EGP"
+                        )
+                    human_review_reasons.extend(reasons)
     except Exception as exc:
         log.warning("payer_settings_enforcement_failed", error=str(exc))
 

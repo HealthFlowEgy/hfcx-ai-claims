@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -34,6 +34,23 @@ export default function PayerFraudPage() {
     Record<string, { status: InvestigationStatus; notes: string[] }>
   >({});
   const [filterStatus, setFilterStatus] = useState<'all' | 'high' | 'medium'>('all');
+  // Fix #1: Provider fraud scorecard
+  const [providerProfile, setProviderProfile] = useState<{
+    provider_id: string;
+    total_claims: number;
+    flagged_claims: number;
+    avg_fraud_score: number;
+    total_amount_egp: number;
+    flagged_amount_egp: number;
+    top_diagnosis_codes: string[];
+    risk_level: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!selectedClaim?.provider_id) { setProviderProfile(null); return; }
+    api.providerFraudProfile(selectedClaim.provider_id)
+      .then(setProviderProfile)
+      .catch(() => setProviderProfile(null));
+  }, [selectedClaim?.provider_id]);
 
   const { data } = useQuery({
     queryKey: ['payer', 'fraud'],
@@ -279,6 +296,47 @@ export default function PayerFraudPage() {
                   <p className="font-mono text-xs">{selectedClaim.patient_nid_masked}</p>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Fix #1: Provider Fraud Scorecard */}
+              {providerProfile && providerProfile.total_claims > 0 && (
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold">Provider Fraud Profile</p>
+                  <div className="rounded-md border border-hcx-danger/20 bg-hcx-danger/5 p-2 space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-hcx-text-muted">Risk Level</span>
+                      <span className={cn(
+                        'font-semibold',
+                        providerProfile.risk_level === 'high' ? 'text-hcx-danger' :
+                        providerProfile.risk_level === 'medium' ? 'text-hcx-warning' : 'text-hcx-success'
+                      )}>{providerProfile.risk_level}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-hcx-text-muted">Total Claims</span>
+                      <span className="font-medium">{providerProfile.total_claims}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-hcx-text-muted">Flagged Claims</span>
+                      <span className="font-medium text-hcx-danger">{providerProfile.flagged_claims}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-hcx-text-muted">Avg Fraud Score</span>
+                      <span className="font-medium">{(providerProfile.avg_fraud_score * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-hcx-text-muted">Flagged Amount</span>
+                      <span className="font-medium">{formatEgp(providerProfile.flagged_amount_egp, locale)}</span>
+                    </div>
+                    {providerProfile.top_diagnosis_codes.length > 0 && (
+                      <div>
+                        <span className="text-hcx-text-muted">Top Diagnoses: </span>
+                        <span className="font-mono">{providerProfile.top_diagnosis_codes.join(', ')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <Separator />
 

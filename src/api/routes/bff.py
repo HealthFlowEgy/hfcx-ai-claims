@@ -169,6 +169,8 @@ def _status_from_row(row: AIClaimAnalysis) -> str:
             return "denied"
         elif payer_dec == "paid":
             return "paid"
+        elif payer_dec == "escalate_siu":
+            return "investigating"
 
     # 2. No payer decision yet — derive from AI processing state
     ai_decision = row.adjudication_decision
@@ -2376,6 +2378,10 @@ class PayerSettingsData(BaseModel):
     auto_routing_enabled: bool
     auto_approve_threshold: float
     notify_on_high_risk: bool
+    auto_deny_fraud_threshold: float = 0.9
+    fraud_notify_threshold: float = 0.7
+    require_override_reason: bool = True
+    max_auto_approve_amount: float = 50000.0
 
 
 @router.get(
@@ -2402,6 +2408,10 @@ class UpdatePayerSettingsRequest(BaseModel):
     auto_routing_enabled: bool
     auto_approve_threshold: float
     notify_on_high_risk: bool
+    auto_deny_fraud_threshold: float = 0.9
+    fraud_notify_threshold: float = 0.7
+    require_override_reason: bool = True
+    max_auto_approve_amount: float = 50000.0
 
 
 @router.put(
@@ -2417,6 +2427,10 @@ async def update_payer_settings(
         auto_routing_enabled=req.auto_routing_enabled,
         auto_approve_threshold=req.auto_approve_threshold,
         notify_on_high_risk=req.notify_on_high_risk,
+        auto_deny_fraud_threshold=req.auto_deny_fraud_threshold,
+        fraud_notify_threshold=req.fraud_notify_threshold,
+        require_override_reason=req.require_override_reason,
+        max_auto_approve_amount=req.max_auto_approve_amount,
     )
     import json as _json
     redis = RedisService()
@@ -2754,7 +2768,7 @@ async def search_medical_codes(
 
 # ─── BFF: Payer claim decision (CRITICAL DIRECTIVE) ─────────────────────
 class PayerDecisionRequest(BaseModel):
-    decision: Literal["approved", "denied"]
+    decision: Literal["approved", "denied", "escalate_siu"]
     reason: str | None = None
     notes: str | None = None
 
@@ -2812,7 +2826,10 @@ async def submit_payer_decision(
                 sa.update(AIClaimAnalysis)
                 .where(AIClaimAnalysis.correlation_id == correlation_id)
                 .values(
-                    adjudication_decision=req.decision,
+                    adjudication_decision=(
+                        "investigating" if req.decision == "escalate_siu"
+                        else req.decision
+                    ),
                     completed_at=now,
                 )
             )
@@ -2836,10 +2853,14 @@ async def submit_payer_decision(
     except Exception:
         pass
 
+    ui_status = (
+        "investigating" if req.decision == "escalate_siu"
+        else req.decision
+    )
     return PayerDecisionResponse(
         correlation_id=correlation_id,
         decision=req.decision,
-        status=req.decision,
+        status=ui_status,
         decided_at=now,
     )
 
@@ -3037,14 +3058,39 @@ async def payer_preauth_list(
 
 # ─── BFF: Payer pre-auth decision ───────────────────────────────────────
 class PreauthDecisionRequest(BaseModel):
-    request_id: str
-    status: str
+    request_id: str | None = None  # optional when using path param
+    status: str | None = None
+    decision: str | None = None  # frontend sends 'decision' field
     reason: str | None = None
 
 
 class PreauthDecisionResponse(BaseModel):
     request_id: str
     status: str
+
+
+async def _handle_preauth_decision(
+    request_id: str,
+    decision_status: str,
+    reason: str | None,
+) -> PreauthDecisionResponse:
+    """Shared logic for preauth decision (body-based and path-based routes)."""
+    import json as _json
+    redis = RedisService()
+    await redis.setex(
+        f"preauth:decision:{request_id}",
+        86400 * 90,
+        _json.dumps({
+            "request_id": request_id,
+            "status": decision_status,
+            "reason": reason,
+            "decided_at": datetime.now(UTC).isoformat(),
+        }),
+    )
+    return PreauthDecisionResponse(
+        request_id=request_id,
+        status=decision_status,
+    )
 
 
 @router.post(
@@ -3055,23 +3101,24 @@ async def payer_preauth_decision(
     req: PreauthDecisionRequest,
     _: str = Depends(verify_service_jwt),
 ) -> PreauthDecisionResponse:
-    """Payer approves or denies a pre-auth request."""
-    import json as _json
-    redis = RedisService()
-    await redis.setex(
-        f"preauth:decision:{req.request_id}",
-        86400 * 90,
-        _json.dumps({
-            "request_id": req.request_id,
-            "status": req.status,
-            "reason": req.reason,
-            "decided_at": datetime.now(UTC).isoformat(),
-        }),
-    )
-    return PreauthDecisionResponse(
-        request_id=req.request_id,
-        status=req.status,
-    )
+    """Payer approves or denies a pre-auth request (body-based route)."""
+    rid = req.request_id or ""
+    status_val = req.decision or req.status or "approved"
+    return await _handle_preauth_decision(rid, status_val, req.reason)
+
+
+@router.post(
+    "/bff/payer/preauth/{request_id}/decision",
+    response_model=PreauthDecisionResponse,
+)
+async def payer_preauth_decision_by_path(
+    request_id: str,
+    req: PreauthDecisionRequest,
+    _: str = Depends(verify_service_jwt),
+) -> PreauthDecisionResponse:
+    """Payer approves or denies a pre-auth request (path-param route)."""
+    status_val = req.decision or req.status or "approved"
+    return await _handle_preauth_decision(request_id, status_val, req.reason)
 
 
 # ─── Load payer decisions from Redis on module import ────────────────────

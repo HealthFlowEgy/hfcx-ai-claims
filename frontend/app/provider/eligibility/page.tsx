@@ -144,6 +144,17 @@ export default function ProviderEligibilityPage() {
               {result.is_eligible ? 'Eligible' : 'Not eligible'}
             </CardTitle>
           </CardHeader>
+          {/* Fix #8: Show degraded warning when registry was unreachable */}
+          {result.error_message && (
+            <div className="mx-6 mb-2 rounded-md border border-hcx-warning/30 bg-hcx-warning/5 p-3">
+              <p className="text-xs font-semibold text-hcx-warning">Degraded Result</p>
+              <p className="text-xs text-hcx-text-muted">{result.error_message}</p>
+              <p className="mt-1 text-[10px] text-hcx-text-muted italic">
+                This result was returned in fail-open mode. The eligibility registry was unreachable.
+                Please verify manually before proceeding.
+              </p>
+            </div>
+          )}
           <CardContent>
             <dl className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
               <Info label={t('coverageActive')}>

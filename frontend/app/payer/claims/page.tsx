@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Bell, CheckSquare, Loader2, X } from 'lucide-react';
@@ -29,8 +29,8 @@ import { cn } from '@/lib/utils';
 const COLUMN_STATUSES: Record<string, ClaimStatus[]> = {
   new: ['submitted'],
   ai: ['ai_analyzed', 'under_ai_review'],
-  pending: ['in_review', 'pending_payer_decision'],
-  done: ['approved', 'denied', 'partial', 'settled', 'paid'],
+  pending: ['in_review', 'pending_payer_decision', 'investigating'],
+  done: ['approved', 'denied', 'partial', 'settled', 'paid', 'voided'],
 };
 
 function isToday(iso: string | null): boolean {
@@ -400,6 +400,21 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
   const [aiResult, setAiResult] = useState<AICoordinateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claimDetail, setClaimDetail] = useState<Record<string, unknown> | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // Fix #9: Auto-fetch persisted AI explainability data on mount
+  useEffect(() => {
+    if (!claim.correlation_id) return;
+    setDetailLoading(true);
+    fetch(`/api/proxy/internal/ai/bff/claims/${claim.correlation_id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) setClaimDetail(data);
+      })
+      .catch(() => {})
+      .finally(() => setDetailLoading(false));
+  }, [claim.correlation_id]);
 
   const runAnalysis = useCallback(async () => {
     setLoading(true);
@@ -444,6 +459,24 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
     return <AIRecommendationCard analysis={aiResult} />;
   }
 
+  // Helper to render a JSONB agent result section
+  const renderAgentSection = (title: string, data: Record<string, unknown> | null | undefined) => {
+    if (!data) return null;
+    return (
+      <div className="rounded-md border border-border p-2 space-y-1">
+        <p className="text-xs font-semibold text-hcx-text">{title}</p>
+        {Object.entries(data).map(([k, v]) => (
+          <div key={k} className="flex justify-between text-[11px]">
+            <span className="text-hcx-text-muted">{k.replace(/_/g, ' ')}</span>
+            <span className="font-medium text-hcx-text max-w-[60%] truncate text-right">
+              {typeof v === 'object' ? JSON.stringify(v) : String(v ?? '-')}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3">
       {claim.ai_recommendation && (
@@ -482,6 +515,36 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
         </div>
       )}
 
+      {/* Fix #9: Show persisted AI explainability data */}
+      {detailLoading && (
+        <div className="flex items-center gap-2 text-xs text-hcx-text-muted">
+          <Loader2 className="size-3 animate-spin" /> Loading AI analysis details...
+        </div>
+      )}
+      {claimDetail && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-hcx-text">AI Agent Results</p>
+          {renderAgentSection('Eligibility', claimDetail.eligibility_result as Record<string, unknown> | null)}
+          {renderAgentSection('Coding Validation', claimDetail.coding_result as Record<string, unknown> | null)}
+          {renderAgentSection('Fraud Detection', claimDetail.fraud_result as Record<string, unknown> | null)}
+          {renderAgentSection('Medical Necessity', claimDetail.necessity_result as Record<string, unknown> | null)}
+          {claimDetail.human_review_reasons && (claimDetail.human_review_reasons as string[]).length > 0 && (
+            <div className="rounded-md border border-hcx-warning/30 bg-hcx-warning/5 p-2">
+              <p className="text-xs font-semibold text-hcx-warning">Human Review Required</p>
+              {(claimDetail.human_review_reasons as string[]).map((r, i) => (
+                <p key={i} className="text-[11px] text-hcx-text-muted">• {r}</p>
+              ))}
+            </div>
+          )}
+          {claimDetail.overall_confidence != null && (
+            <p className="text-[11px] text-hcx-text-muted">
+              Overall Confidence: <span className="font-semibold">{((claimDetail.overall_confidence as number) * 100).toFixed(0)}%</span>
+              {claimDetail.processing_time_ms && ` | Processing: ${claimDetail.processing_time_ms}ms`}
+            </p>
+          )}
+        </div>
+      )}
+
       <Button
         variant="outline"
         className="w-full"
@@ -494,7 +557,7 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
             Running AI Analysis...
           </>
         ) : (
-          'Run Full AI Analysis'
+          claimDetail ? 'Re-run Full AI Analysis' : 'Run Full AI Analysis'
         )}
       </Button>
 
@@ -551,7 +614,7 @@ function DecisionPanel({
           ? 'approved'
           : decision === 'deny'
             ? 'denied'
-            : 'investigating';
+            : 'escalate_siu';
       // Also record feedback for drift monitoring
       api.submitFeedback({
         correlation_id: claim.correlation_id,
@@ -565,7 +628,7 @@ function DecisionPanel({
       // Submit the actual payer decision
       return api.submitClaimDecision({
         correlation_id: claim.correlation_id,
-        decision: humanDecision === 'investigating' ? 'denied' : (humanDecision as 'approved' | 'denied'),
+        decision: humanDecision as 'approved' | 'denied' | 'escalate_siu',
         reason: isOverride ? overrideReason : (notes || undefined),
         notes: notes || undefined,
       });

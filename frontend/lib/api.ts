@@ -353,11 +353,29 @@ export const api = {
     });
   },
 
+  // ── Claim detail (AI explainability) ──────────────────────────────
+  claimDetail(
+    correlationId: string,
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      correlation_id: string;
+      claim_id: string;
+      status: string;
+      ai_risk_score: number | null;
+      ai_recommendation: string | null;
+      eligibility_result: Record<string, unknown> | null;
+      coding_result: Record<string, unknown> | null;
+      fraud_result: Record<string, unknown> | null;
+      necessity_result: Record<string, unknown> | null;
+    }>(`/internal/ai/bff/claims/${correlationId}`, opts);
+  },
+
   // ── Payer claim decision (CRITICAL DIRECTIVE) ─────────────────────────
   submitClaimDecision(
     payload: {
       correlation_id: string;
-      decision: 'approved' | 'denied';
+      decision: 'approved' | 'denied' | 'escalate_siu';
       reason?: string;
       notes?: string;
     },
@@ -509,8 +527,36 @@ export const api = {
         settled_amount: number;
         method: string;
         reconciled: boolean;
+        status: string;
+        evidence_url: string | null;
+        status_updated_at: string;
       }>;
     }>('/internal/ai/bff/provider/payments', opts);
+  },
+
+  uploadPaymentEvidence(
+    paymentRef: string,
+    evidenceUrl: string,
+    opts: FetchOptions = {},
+  ) {
+    return request<{ payment_ref: string; status: string; evidence_url: string }>(
+      `/internal/ai/bff/provider/payments/${paymentRef}/evidence`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ evidence_url: evidenceUrl }),
+        ...opts,
+      },
+    );
+  },
+
+  advancePaymentStatus(
+    paymentRef: string,
+    opts: FetchOptions = {},
+  ) {
+    return request<{ payment_ref: string; status: string; status_updated_at: string }>(
+      `/internal/ai/bff/provider/payments/${paymentRef}/advance`,
+      { method: 'POST', ...opts },
+    );
   },
 
   // ── Provider pre-auth ──────────────────────────────────────────────────
@@ -656,14 +702,17 @@ export const api = {
   },
 
   updatePreauthStatus(
-    payload: { request_id: string; status: string; reason?: string },
+    payload: { request_id: string; decision: string; reason?: string },
     opts: FetchOptions = {},
   ) {
-    return request<{ request_id: string; status: string }>('/internal/ai/bff/payer/preauth/decision', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      ...opts,
-    });
+    return request<{ request_id: string; status: string }>(
+      `/internal/ai/bff/payer/preauth/${payload.request_id}/decision`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        ...opts,
+      },
+    );
   },
 
   // ── Payer settings ─────────────────────────────────────────────────────
@@ -704,6 +753,38 @@ export const api = {
       body: JSON.stringify(payload),
       ...opts,
     });
+  },
+
+  // ── SIU fraud profiles ─────────────────────────────────────────────────
+  providerFraudProfile(
+    providerId: string,
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      provider_id: string;
+      total_claims: number;
+      flagged_claims: number;
+      avg_fraud_score: number;
+      total_amount_egp: number;
+      flagged_amount_egp: number;
+      top_diagnosis_codes: string[];
+      risk_level: string;
+    }>(`/internal/ai/bff/siu/provider-profile/${providerId}`, opts);
+  },
+
+  beneficiaryRiskProfile(
+    patientNidHash: string,
+    opts: FetchOptions = {},
+  ) {
+    return request<{
+      patient_nid_hash: string;
+      total_claims: number;
+      flagged_claims: number;
+      avg_fraud_score: number;
+      total_amount_egp: number;
+      distinct_providers: number;
+      risk_level: string;
+    }>(`/internal/ai/bff/siu/beneficiary-risk/${patientNidHash}`, opts);
   },
 
   // ── SIU reports ────────────────────────────────────────────────────────

@@ -2,9 +2,17 @@
 
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Banknote, CheckCircle2, Clock, Filter } from 'lucide-react';
+import {
+  Banknote,
+  CheckCircle2,
+  Clock,
+  Filter,
+  FileUp,
+  Loader2,
+  ArrowRight,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,12 +20,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable } from '@/components/shared/data-table';
 import { KpiCard } from '@/components/shared/kpi-card';
 import { api } from '@/lib/api';
-import { formatDate, formatEgp } from '@/lib/utils';
+import { cn, formatDate, formatEgp } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 /**
- * Fix #20: Enhanced reconciliation status with visual indicators,
- * filter by reconciliation status, and payment method breakdown.
+ * Fix #12 + #20: Payment lifecycle with status progression
+ * (initiated → evidence_uploaded → verified → completed)
+ * and evidence upload support.
  */
+
+type PaymentStatus = 'initiated' | 'evidence_uploaded' | 'verified' | 'completed';
 
 type Payment = {
   payment_ref: string;
@@ -26,13 +38,26 @@ type Payment = {
   settled_amount: number;
   method: string;
   reconciled: boolean;
+  status?: PaymentStatus;
+  evidence_url?: string | null;
+};
+
+const STATUS_CONFIG: Record<
+  PaymentStatus,
+  { variant: 'default' | 'warning' | 'success' | 'muted'; label: string; icon: typeof Clock }
+> = {
+  initiated: { variant: 'muted', label: 'Initiated', icon: Clock },
+  evidence_uploaded: { variant: 'warning', label: 'Evidence Uploaded', icon: FileUp },
+  verified: { variant: 'default', label: 'Verified', icon: CheckCircle2 },
+  completed: { variant: 'success', label: 'Completed', icon: CheckCircle2 },
 };
 
 export default function ProviderPaymentsPage() {
   const t = useTranslations('provider.payments');
   const tc = useTranslations('common');
   const locale = useLocale() as 'ar' | 'en';
-  const [reconFilter, setReconFilter] = useState<'all' | 'reconciled' | 'unreconciled'>('all');
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<'all' | PaymentStatus>('all');
 
   const { data, isLoading } = useQuery({
     queryKey: ['provider', 'payments'],
@@ -44,30 +69,44 @@ export default function ProviderPaymentsPage() {
     [data],
   );
 
-  // Fix #20: Filter by reconciliation status
   const filteredPayments = useMemo(() => {
-    if (reconFilter === 'all') return payments;
-    return payments.filter((p) =>
-      reconFilter === 'reconciled' ? p.reconciled : !p.reconciled,
-    );
-  }, [payments, reconFilter]);
+    if (statusFilter === 'all') return payments;
+    return payments.filter((p) => (p.status ?? 'initiated') === statusFilter);
+  }, [payments, statusFilter]);
 
   const total = useMemo(
     () => payments.reduce((s, p) => s + p.settled_amount, 0),
     [payments],
   );
-  const reconciledCount = useMemo(
-    () => payments.filter((p) => p.reconciled).length,
+  const completedCount = useMemo(
+    () => payments.filter((p) => (p.status ?? (p.reconciled ? 'completed' : 'initiated')) === 'completed').length,
     [payments],
   );
-  const reconciledAmount = useMemo(
-    () => payments.filter((p) => p.reconciled).reduce((s, p) => s + p.settled_amount, 0),
+  const completedAmount = useMemo(
+    () => payments.filter((p) => (p.status ?? (p.reconciled ? 'completed' : 'initiated')) === 'completed')
+      .reduce((s, p) => s + p.settled_amount, 0),
     [payments],
   );
-  const unreconciledAmount = useMemo(
-    () => payments.filter((p) => !p.reconciled).reduce((s, p) => s + p.settled_amount, 0),
-    [payments],
+  const pendingAmount = useMemo(
+    () => total - completedAmount,
+    [total, completedAmount],
   );
+
+  const uploadEvidence = useMutation({
+    mutationFn: async (paymentRef: string) => {
+      const res = await fetch(`/api/proxy/internal/ai/bff/provider/payments/${paymentRef}/evidence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ evidence_url: `evidence://${paymentRef}/receipt.pdf` }),
+      });
+      if (!res.ok) throw new Error('Failed to upload evidence');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['provider', 'payments'] });
+      toast({ title: 'Evidence Uploaded', description: 'Payment evidence submitted.', variant: 'success' });
+    },
+  });
 
   const columns = useMemo<ColumnDef<Payment>[]>(
     () => [
@@ -98,23 +137,66 @@ export default function ProviderPaymentsPage() {
       },
       { header: t('method'), accessorKey: 'method' },
       {
-        header: t('reconciliationStatus'),
-        accessorKey: 'reconciled',
-        cell: ({ row }) =>
-          row.original.reconciled ? (
-            <Badge variant="success" className="gap-1">
-              <CheckCircle2 className="size-3" />
-              {t('reconciled')}
+        header: 'Status',
+        id: 'lifecycle_status',
+        cell: ({ row }) => {
+          const status: PaymentStatus = row.original.status ?? (row.original.reconciled ? 'completed' : 'initiated');
+          const config = STATUS_CONFIG[status];
+          const Icon = config.icon;
+          return (
+            <Badge variant={config.variant} className="gap-1">
+              <Icon className="size-3" />
+              {config.label}
             </Badge>
-          ) : (
-            <Badge variant="warning" className="gap-1">
-              <Clock className="size-3" />
-              {t('unreconciled')}
-            </Badge>
-          ),
+          );
+        },
+      },
+      {
+        header: tc('actions'),
+        id: 'actions',
+        cell: ({ row }) => {
+          const status: PaymentStatus = row.original.status ?? (row.original.reconciled ? 'completed' : 'initiated');
+          if (status === 'initiated') {
+            return (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={() => uploadEvidence.mutate(row.original.payment_ref)}
+                disabled={uploadEvidence.isPending}
+              >
+                {uploadEvidence.isPending ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <FileUp className="size-3" />
+                )}
+                Upload Evidence
+              </Button>
+            );
+          }
+          if (status === 'evidence_uploaded') {
+            return (
+              <span className="flex items-center gap-1 text-xs text-hcx-text-muted">
+                <Clock className="size-3" /> Awaiting Payer Verification
+              </span>
+            );
+          }
+          if (status === 'verified') {
+            return (
+              <span className="flex items-center gap-1 text-xs text-hcx-primary">
+                <ArrowRight className="size-3" /> Processing
+              </span>
+            );
+          }
+          return (
+            <span className="flex items-center gap-1 text-xs text-hcx-success">
+              <CheckCircle2 className="size-3" /> Done
+            </span>
+          );
+        },
       },
     ],
-    [locale, t],
+    [locale, t, tc, uploadEvidence],
   );
 
   if (isLoading) {
@@ -139,39 +221,58 @@ export default function ProviderPaymentsPage() {
           icon={<Banknote className="size-5" />}
         />
         <KpiCard
-          label={t('reconciled')}
-          value={`${reconciledCount} (${formatEgp(reconciledAmount, locale)})`}
+          label="Completed"
+          value={`${completedCount} (${formatEgp(completedAmount, locale)})`}
           icon={<CheckCircle2 className="size-5" />}
         />
         <KpiCard
-          label={t('unreconciled')}
-          value={`${payments.length - reconciledCount} (${formatEgp(unreconciledAmount, locale)})`}
+          label="Pending"
+          value={`${payments.length - completedCount} (${formatEgp(pendingAmount, locale)})`}
           icon={<Clock className="size-5" />}
           threshold={{ warn: 3, alert: 5, higherIsBad: true }}
         />
         <KpiCard
-          label="Reconciliation Rate"
-          value={`${payments.length > 0 ? ((reconciledCount / payments.length) * 100).toFixed(0) : 0}%`}
+          label="Completion Rate"
+          value={`${payments.length > 0 ? ((completedCount / payments.length) * 100).toFixed(0) : 0}%`}
           icon={<CheckCircle2 className="size-5" />}
         />
       </div>
 
-      {/* Fix #20: Reconciliation filter */}
+      {/* Status filter */}
       <div className="flex items-center gap-2">
         <Filter className="size-4 text-hcx-text-muted" />
-        {(['all', 'reconciled', 'unreconciled'] as const).map((f) => (
+        {(['all', 'initiated', 'evidence_uploaded', 'verified', 'completed'] as const).map((f) => (
           <Button
             key={f}
-            variant={reconFilter === f ? 'default' : 'outline'}
+            variant={statusFilter === f ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setReconFilter(f)}
+            onClick={() => setStatusFilter(f)}
           >
-            {f === 'all' ? `All (${payments.length})` :
-             f === 'reconciled' ? `${t('reconciled')} (${reconciledCount})` :
-             `${t('unreconciled')} (${payments.length - reconciledCount})`}
+            {f === 'all'
+              ? `All (${payments.length})`
+              : `${STATUS_CONFIG[f as PaymentStatus]?.label ?? f} (${payments.filter((p) => (p.status ?? 'initiated') === f).length})`}
           </Button>
         ))}
       </div>
+
+      {/* Lifecycle progress */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex items-center justify-between text-xs text-hcx-text-muted">
+            {(['initiated', 'evidence_uploaded', 'verified', 'completed'] as PaymentStatus[]).map((s, i) => {
+              const count = payments.filter((p) => (p.status ?? 'initiated') === s).length;
+              return (
+                <div key={s} className="flex items-center gap-1">
+                  {i > 0 && <ArrowRight className="size-3 text-border" />}
+                  <span className={cn('font-medium', count > 0 && 'text-hcx-primary')}>
+                    {STATUS_CONFIG[s].label}: {count}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

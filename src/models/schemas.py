@@ -133,8 +133,16 @@ class FHIRClaimBundle(BaseModel):
     @field_validator("patient_id")
     @classmethod
     def _validate_patient_id(cls, v: str) -> str:
-        """FR-EV-002: validate 14-digit Egyptian NID format."""
+        """FR-EV-002: validate 14-digit Egyptian NID format.
+
+        Also accepts masked IDs (containing '*') which come from the
+        payer portal re-analysis flow where only the masked NID is
+        available.
+        """
         if not v:
+            return v
+        # Accept masked patient IDs from payer re-analysis
+        if "*" in v:
             return v
         import re
         v = _normalize_national_id(v)
