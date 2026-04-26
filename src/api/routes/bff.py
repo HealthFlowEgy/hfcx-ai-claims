@@ -858,16 +858,18 @@ async def claim_detail(
 class ProviderFraudProfile(BaseModel):
     provider_id: str
     total_claims: int
+    flagged_claims: int
     avg_fraud_score: float
-    high_risk_count: int
     total_amount_egp: float
-    top_flags: list[str]
+    flagged_amount_egp: float
+    top_diagnosis_codes: list[str]
+    risk_level: str
 
 
 class BeneficiaryRiskProfile(BaseModel):
     patient_nid_hash: str
-    patient_nid_masked: str
     total_claims: int
+    flagged_claims: int
     avg_fraud_score: float
     total_amount_egp: float
     distinct_providers: int
@@ -899,23 +901,33 @@ async def provider_fraud_profile(
         rows = []
 
     scores = [r.fraud_score for r in rows if r.fraud_score is not None]
-    flags: list[str] = []
-    for r in rows:
-        fr = r.fraud_result or {}
-        flags.extend(fr.get("billing_pattern_flags", []))
-        flags.extend(fr.get("network_risk_indicators", []))
+    flagged = [r for r in rows if (r.fraud_score or 0) >= 0.6]
+    avg = round(sum(scores) / len(scores), 3) if scores else 0.0
 
-    # Deduplicate and take top 5
+    # Extract top diagnosis codes from coding_result JSONB
     from collections import Counter
-    top_flags = [f for f, _ in Counter(flags).most_common(5)]
+    diag_counter: Counter[str] = Counter()
+    for r in rows:
+        cr = r.coding_result or {}
+        for code in cr.get("icd10_codes", []):
+            if isinstance(code, dict):
+                diag_counter[code.get("code", "")] += 1
+            elif isinstance(code, str):
+                diag_counter[code] += 1
+    top_diags = [c for c, _ in diag_counter.most_common(5) if c]
+
+    # Risk level based on average fraud score
+    risk_level = "high" if avg >= 0.6 else "medium" if avg >= 0.3 else "low"
 
     return ProviderFraudProfile(
         provider_id=provider_id,
         total_claims=len(rows),
-        avg_fraud_score=round(sum(scores) / len(scores), 3) if scores else 0.0,
-        high_risk_count=sum(1 for s in scores if s >= 0.6),
+        flagged_claims=len(flagged),
+        avg_fraud_score=avg,
         total_amount_egp=sum(float(r.total_amount or 0) for r in rows),
-        top_flags=top_flags,
+        flagged_amount_egp=sum(float(r.total_amount or 0) for r in flagged),
+        top_diagnosis_codes=top_diags,
+        risk_level=risk_level,
     )
 
 
@@ -954,10 +966,12 @@ async def beneficiary_risk_profile(
     else:
         risk = "low"
 
+    flagged = [r for r in rows if (r.fraud_score or 0) >= 0.6]
+
     return BeneficiaryRiskProfile(
         patient_nid_hash=patient_nid_hash,
-        patient_nid_masked=rows[0].patient_nid_masked if rows else "****",
         total_claims=len(rows),
+        flagged_claims=len(flagged),
         avg_fraud_score=avg,
         total_amount_egp=sum(float(r.total_amount or 0) for r in rows),
         distinct_providers=len(providers),
