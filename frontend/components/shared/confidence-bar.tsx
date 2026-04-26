@@ -16,12 +16,12 @@ export interface ConfidenceBarProps {
 
 function bucketColor(confidence: number): { bar: string; text: string } {
   if (confidence >= 0.8) {
-    return { bar: 'bg-emerald-500', text: 'text-emerald-600' };
+    return { bar: 'bg-hcx-success', text: 'text-emerald-600' };
   }
   if (confidence >= 0.5) {
-    return { bar: 'bg-amber-500', text: 'text-amber-600' };
+    return { bar: 'bg-hcx-warning', text: 'text-amber-600' };
   }
-  return { bar: 'bg-red-500', text: 'text-red-600' };
+  return { bar: 'bg-hcx-danger', text: 'text-red-600' };
 }
 
 export function ConfidenceBar({

@@ -85,15 +85,28 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: stop audit flusher first so pending audit rows drain, then
     # close shared HTTP clients, engine, redis pool, coordinator.
-    await AuditService.stop()
-    await shutdown_coordinator()
-    await LLMService.close_shared()
-    await EligibilityAgent.close_shared()
-    await NDPService.close_shared()
-    await HAPIFHIRService.close_shared()
-    await MultimodalDocumentAgent.close_shared()
-    await close_redis_pool()
-    await dispose_engine()
+    # Each call is wrapped individually so a single failure (e.g. event loop
+    # already closed in TestClient) does not prevent the remaining cleanup.
+    _shutdown_tasks = [
+        ("audit", AuditService.stop),
+        ("coordinator", shutdown_coordinator),
+        ("llm", LLMService.close_shared),
+        ("eligibility", EligibilityAgent.close_shared),
+        ("ndp", NDPService.close_shared),
+        ("hapi_fhir", HAPIFHIRService.close_shared),
+        ("multimodal", MultimodalDocumentAgent.close_shared),
+        ("redis", close_redis_pool),
+        ("db_engine", dispose_engine),
+    ]
+    for name, coro_fn in _shutdown_tasks:
+        try:
+            await coro_fn()
+        except RuntimeError as exc:
+            # Tolerate "Event loop is closed" which happens when
+            # FastAPI TestClient tears down the ASGI lifespan.
+            if "Event loop is closed" not in str(exc):
+                raise
+            log.debug("shutdown_skipped", component=name, reason=str(exc))
     log.info("hfcx_ai_shutdown")
 
 

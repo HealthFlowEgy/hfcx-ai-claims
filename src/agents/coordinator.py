@@ -34,8 +34,8 @@ try:
     _LANGGRAPH_AVAILABLE = True
 except ImportError:  # pragma: no cover — production deploys always have it
     _LANGGRAPH_AVAILABLE = False
-    AsyncRedisSaver = None  # type: ignore[assignment,misc]
-    StateGraph = None  # type: ignore[assignment]
+    AsyncRedisSaver = None
+    StateGraph = None
     START = "__start__"
     END = "__end__"
 
