@@ -26,6 +26,10 @@ from pydantic import BaseModel
 from sqlalchemy import case, func, literal, select, text
 
 from src.api.middleware import verify_service_jwt
+from src.api.routes._coding_helpers import (
+    extract_icd10_code,
+    extract_procedure_name,
+)
 from src.models.orm import AIClaimAnalysis, create_engine_and_session
 from src.services.redis_service import RedisService
 
@@ -703,6 +707,45 @@ async def list_claims(
                 for r in rows
             ]
 
+            # Optimistic UI: merge any recently-submitted claims that
+            # haven't yet been persisted to the DB by the AI pipeline.
+            import json as _json
+            db_claim_ids = {r.claim_id for r in rows}
+            try:
+                redis = RedisService()
+                opt_keys = await redis.keys("optimistic_claim:*")
+                for key in (opt_keys or []):
+                    raw_opt = await redis.get(key)
+                    if not raw_opt:
+                        continue
+                    opt = _json.loads(raw_opt)
+                    if opt.get("claim_id") in db_claim_ids:
+                        # Already in DB — delete the optimistic placeholder
+                        await redis.delete(key)
+                        continue
+                    all_items.insert(
+                        0,
+                        ClaimListItem(
+                            claim_id=opt["claim_id"],
+                            correlation_id=opt.get("correlation_id", ""),
+                            patient_nid_masked=opt.get("patient_nid_masked", "****"),
+                            provider_id=opt.get("provider_id", ""),
+                            payer_id=opt.get("payer_id", ""),
+                            claim_type=opt.get("claim_type", "outpatient"),
+                            total_amount=float(opt.get("total_amount", 0)),
+                            status="submitted",
+                            ai_risk_score=None,
+                            ai_recommendation=None,
+                            submitted_at=datetime.fromisoformat(
+                                opt["submitted_at"]
+                            ) if opt.get("submitted_at") else datetime.now(UTC),
+                            decided_at=None,
+                        ),
+                    )
+                    total += 1
+            except Exception as opt_exc:
+                log.warning("optimistic_merge_failed", error=str(opt_exc))
+
             # CRITICAL DIRECTIVE: Post-filter by computed UI status.
             # The SQL filter uses the raw adjudication_decision column,
             # but _status_from_row() may compute a different status
@@ -725,6 +768,199 @@ async def list_claims(
     except Exception as exc:
         log.warning("bff_claims_fallback", error=str(exc))
         return ClaimListResponse(items=[], total=0)
+
+
+# ─── BFF: Claim detail (AI explainability) ───────────────────────────────
+class ClaimDetailResponse(BaseModel):
+    claim_id: str
+    correlation_id: str
+    patient_nid_masked: str
+    provider_id: str
+    payer_id: str
+    claim_type: str
+    total_amount: float
+    status: str
+    ai_risk_score: float | None = None
+    ai_recommendation: str | None = None
+    submitted_at: datetime
+    decided_at: datetime | None = None
+    # Full agent results for explainability
+    eligibility_result: dict[str, Any] | None = None
+    coding_result: dict[str, Any] | None = None
+    fraud_result: dict[str, Any] | None = None
+    necessity_result: dict[str, Any] | None = None
+    # Human-review metadata
+    requires_human_review: bool = False
+    human_review_reasons: list[str] = []
+    overall_confidence: float | None = None
+    processing_time_ms: int | None = None
+    model_versions: dict[str, Any] | None = None
+
+
+@router.get(
+    "/bff/claims/{correlation_id}",
+    response_model=ClaimDetailResponse,
+)
+async def claim_detail(
+    correlation_id: str,
+    _: str = Depends(verify_service_jwt),
+) -> ClaimDetailResponse:
+    """Return full claim detail including all AI agent results for explainability."""
+    from fastapi import HTTPException
+
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            row = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.correlation_id == correlation_id)
+                )
+            ).scalar_one_or_none()
+    except Exception as exc:
+        log.warning("bff_claim_detail_error", error=str(exc))
+        raise HTTPException(status_code=500, detail="Database error") from exc
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    # Refresh payer decision for this claim
+    await _refresh_payer_decisions([correlation_id])
+
+    return ClaimDetailResponse(
+        claim_id=row.claim_id,
+        correlation_id=row.correlation_id,
+        patient_nid_masked=row.patient_nid_masked or "****",
+        provider_id=row.provider_id or "",
+        payer_id=row.payer_id or "",
+        claim_type=row.claim_type or "outpatient",
+        total_amount=float(row.total_amount) if row.total_amount is not None else 0.0,
+        status=_status_from_row(row),
+        ai_risk_score=row.fraud_score,
+        ai_recommendation=row.adjudication_decision,
+        submitted_at=row.created_at,
+        decided_at=row.completed_at,
+        eligibility_result=row.eligibility_result,
+        coding_result=row.coding_result,
+        fraud_result=row.fraud_result,
+        necessity_result=row.necessity_result,
+        requires_human_review=row.requires_human_review or False,
+        human_review_reasons=list(row.human_review_reasons or []),
+        overall_confidence=row.overall_confidence,
+        processing_time_ms=row.processing_time_ms,
+        model_versions=row.model_versions,
+    )
+
+
+# ─── BFF: Provider fraud profile ────────────────────────────────────────
+class ProviderFraudProfile(BaseModel):
+    provider_id: str
+    total_claims: int
+    avg_fraud_score: float
+    high_risk_count: int
+    total_amount_egp: float
+    top_flags: list[str]
+
+
+class BeneficiaryRiskProfile(BaseModel):
+    patient_nid_hash: str
+    patient_nid_masked: str
+    total_claims: int
+    avg_fraud_score: float
+    total_amount_egp: float
+    distinct_providers: int
+    risk_level: str
+
+
+@router.get(
+    "/bff/siu/provider-profile/{provider_id}",
+    response_model=ProviderFraudProfile,
+)
+async def provider_fraud_profile(
+    provider_id: str,
+    _: str = Depends(verify_service_jwt),
+) -> ProviderFraudProfile:
+    """Aggregate fraud scorecard for a specific provider."""
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.provider_id == provider_id)
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(200)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_provider_fraud_profile_error", error=str(exc))
+        rows = []
+
+    scores = [r.fraud_score for r in rows if r.fraud_score is not None]
+    flags: list[str] = []
+    for r in rows:
+        fr = r.fraud_result or {}
+        flags.extend(fr.get("billing_pattern_flags", []))
+        flags.extend(fr.get("network_risk_indicators", []))
+
+    # Deduplicate and take top 5
+    from collections import Counter
+    top_flags = [f for f, _ in Counter(flags).most_common(5)]
+
+    return ProviderFraudProfile(
+        provider_id=provider_id,
+        total_claims=len(rows),
+        avg_fraud_score=round(sum(scores) / len(scores), 3) if scores else 0.0,
+        high_risk_count=sum(1 for s in scores if s >= 0.6),
+        total_amount_egp=sum(float(r.total_amount or 0) for r in rows),
+        top_flags=top_flags,
+    )
+
+
+@router.get(
+    "/bff/siu/beneficiary-risk/{patient_nid_hash}",
+    response_model=BeneficiaryRiskProfile,
+)
+async def beneficiary_risk_profile(
+    patient_nid_hash: str,
+    _: str = Depends(verify_service_jwt),
+) -> BeneficiaryRiskProfile:
+    """Aggregate abuse-risk scorecard for a specific beneficiary."""
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.patient_nid_hash == patient_nid_hash)
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(200)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("bff_beneficiary_risk_error", error=str(exc))
+        rows = []
+
+    scores = [r.fraud_score for r in rows if r.fraud_score is not None]
+    avg = round(sum(scores) / len(scores), 3) if scores else 0.0
+    providers = {r.provider_id for r in rows if r.provider_id}
+
+    if avg >= 0.7:
+        risk = "high"
+    elif avg >= 0.4:
+        risk = "medium"
+    else:
+        risk = "low"
+
+    return BeneficiaryRiskProfile(
+        patient_nid_hash=patient_nid_hash,
+        patient_nid_masked=rows[0].patient_nid_masked if rows else "****",
+        total_claims=len(rows),
+        avg_fraud_score=avg,
+        total_amount_egp=sum(float(r.total_amount or 0) for r in rows),
+        distinct_providers=len(providers),
+        risk_level=risk,
+    )
 
 
 # ─── BFF: SIU network graph ───────────────────────────────────────────────
@@ -1638,13 +1874,17 @@ async def provider_communications(
 
 
 # ─── BFF: Provider payments ─────────────────────────────────────────────
+# Payment lifecycle: initiated → evidence_uploaded → verified → completed
 class PaymentRecord(BaseModel):
     payment_ref: str
     claim_id: str
-    paid_on: datetime
+    initiated_on: datetime
     settled_amount: float
     method: str
-    reconciled: bool
+    status: str  # initiated | evidence_uploaded | verified | completed
+    evidence_url: str | None = None
+    verified_on: datetime | None = None
+    completed_on: datetime | None = None
 
 
 class ProviderPaymentsResponse(BaseModel):
@@ -1658,8 +1898,11 @@ class ProviderPaymentsResponse(BaseModel):
 async def provider_payments(
     _: str = Depends(verify_service_jwt),
 ) -> ProviderPaymentsResponse:
-    """Payment records derived from approved claims."""
+    """Payment records derived from approved claims with lifecycle state."""
+    import json as _json
     now = datetime.now(UTC)
+    redis = RedisService()
+
     try:
         _, session_factory = create_engine_and_session()
         async with session_factory() as session:
@@ -1676,46 +1919,144 @@ async def provider_payments(
         rows = []
 
     if rows:
-        items = [
-            PaymentRecord(
-                payment_ref=f"PAY-{r.claim_id[-8:] if r.claim_id else '00000000'}",
-                claim_id=r.claim_id,
-                paid_on=r.completed_at or r.created_at,
-                settled_amount=float(r.total_amount or 0),
-                method="Bank transfer",
-                reconciled=i < len(rows) - 1,
+        items = []
+        for r in rows:
+            pay_ref = f"PAY-{r.claim_id[-8:] if r.claim_id else '00000000'}"
+            # Check Redis for lifecycle state overrides
+            raw = await redis.get(f"payment:state:{pay_ref}")
+            if raw:
+                state = _json.loads(raw)
+            else:
+                state = {"status": "initiated"}
+            items.append(
+                PaymentRecord(
+                    payment_ref=pay_ref,
+                    claim_id=r.claim_id,
+                    initiated_on=r.completed_at or r.created_at,
+                    settled_amount=float(r.total_amount or 0),
+                    method="Bank transfer",
+                    status=state.get("status", "initiated"),
+                    evidence_url=state.get("evidence_url"),
+                    verified_on=(
+                        datetime.fromisoformat(state["verified_on"])
+                        if state.get("verified_on") else None
+                    ),
+                    completed_on=(
+                        datetime.fromisoformat(state["completed_on"])
+                        if state.get("completed_on") else None
+                    ),
+                )
             )
-            for i, r in enumerate(rows)
-        ]
     else:
         items = [
             PaymentRecord(
                 payment_ref="PAY-2026-10034",
                 claim_id="CLAIM-2026-0042",
-                paid_on=now - timedelta(days=1),
+                initiated_on=now - timedelta(days=1),
                 settled_amount=1820.0,
                 method="Bank transfer",
-                reconciled=True,
+                status="completed",
+                completed_on=now - timedelta(hours=6),
             ),
             PaymentRecord(
                 payment_ref="PAY-2026-10033",
                 claim_id="CLAIM-2026-0038",
-                paid_on=now - timedelta(days=2),
+                initiated_on=now - timedelta(days=2),
                 settled_amount=2650.0,
                 method="Bank transfer",
-                reconciled=True,
+                status="verified",
+                verified_on=now - timedelta(days=1),
             ),
             PaymentRecord(
                 payment_ref="PAY-2026-10032",
                 claim_id="CLAIM-2026-0036",
-                paid_on=now - timedelta(days=3),
+                initiated_on=now - timedelta(days=3),
                 settled_amount=980.0,
                 method="Bank transfer",
-                reconciled=False,
+                status="initiated",
             ),
         ]
 
     return ProviderPaymentsResponse(items=items)
+
+
+# ─── BFF: Payment lifecycle transitions ────────────────────────────────
+_PAYMENT_TRANSITIONS: dict[str, list[str]] = {
+    "initiated": ["evidence_uploaded"],
+    "evidence_uploaded": ["verified"],
+    "verified": ["completed"],
+    "completed": [],
+}
+
+
+class PaymentTransitionRequest(BaseModel):
+    payment_ref: str
+    target_status: str
+    evidence_url: str | None = None
+
+
+class PaymentTransitionResponse(BaseModel):
+    payment_ref: str
+    status: str
+    transitioned_at: datetime
+
+
+@router.post(
+    "/bff/provider/payments/transition",
+    response_model=PaymentTransitionResponse,
+)
+async def payment_transition(
+    req: PaymentTransitionRequest,
+    _: str = Depends(verify_service_jwt),
+) -> PaymentTransitionResponse:
+    """Advance a payment through its lifecycle.
+
+    Valid transitions:
+      initiated → evidence_uploaded (provider uploads evidence)
+      evidence_uploaded → verified (payer verifies evidence)
+      verified → completed (payer marks payment as completed)
+    """
+    import json as _json
+    now = datetime.now(UTC)
+    redis = RedisService()
+
+    # Load current state
+    raw = await redis.get(f"payment:state:{req.payment_ref}")
+    state: dict = _json.loads(raw) if raw else {"status": "initiated"}
+    current = state.get("status", "initiated")
+
+    # Validate transition
+    allowed = _PAYMENT_TRANSITIONS.get(current, [])
+    if req.target_status not in allowed:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Cannot transition from '{current}' to '{req.target_status}'. "
+                f"Allowed: {allowed}"
+            ),
+        )
+
+    # Apply transition
+    state["status"] = req.target_status
+    if req.target_status == "evidence_uploaded" and req.evidence_url:
+        state["evidence_url"] = req.evidence_url
+    if req.target_status == "verified":
+        state["verified_on"] = now.isoformat()
+    if req.target_status == "completed":
+        state["completed_on"] = now.isoformat()
+
+    await redis.setex(
+        f"payment:state:{req.payment_ref}",
+        86400 * 365,
+        _json.dumps(state),
+    )
+
+    return PaymentTransitionResponse(
+        payment_ref=req.payment_ref,
+        status=req.target_status,
+        transitioned_at=now,
+    )
 
 
 # ─── BFF: Provider pre-auth ─────────────────────────────────────────────
@@ -1771,21 +2112,33 @@ async def provider_preauth(
         rows = []
 
     if rows:
-        items = [
-            PreAuthItem(
-                request_id=f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}",
-                claim_type=r.claim_type or "outpatient",
-                # ISSUE-032: Don't double-mask already-masked NID
-                patient_nid_masked=r.patient_nid_masked or "****",
-                icd10="M54.5",
-                procedure="Pre-authorization review",
-                amount=float(r.total_amount or 0),
-                status="in_review",
-                requested_at=r.created_at,
-                justification="Pending clinical review.",
+        import json as _json_pa
+        redis_pa = RedisService()
+        items = []
+        for r in rows:
+            req_id = f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}"
+            # Check Redis for payer decision on this pre-auth
+            pa_status = "in_review"
+            try:
+                raw_dec = await redis_pa.get(f"preauth:decision:{req_id}")
+                if raw_dec:
+                    dec = _json_pa.loads(raw_dec)
+                    pa_status = dec.get("status", "in_review")
+            except Exception:
+                pass
+            items.append(
+                PreAuthItem(
+                    request_id=req_id,
+                    claim_type=r.claim_type or "outpatient",
+                    patient_nid_masked=r.patient_nid_masked or "****",
+                    icd10=extract_icd10_code(r.coding_result) or "—",
+                    procedure=extract_procedure_name(r.coding_result) or "Pre-authorization review",
+                    amount=float(r.total_amount or 0),
+                    status=pa_status,
+                    requested_at=r.created_at,
+                    justification="Pending clinical review.",
+                )
             )
-            for r in rows
-        ]
     else:
         items = [
             PreAuthItem(
@@ -2248,6 +2601,115 @@ async def generate_regulatory_report(
     return entry
 
 
+# ─── BFF: Report downloads (CSV generation) ───────────────────────────
+@router.get("/bff/siu/reports/{report_id}/download")
+async def download_siu_report(
+    report_id: str,
+    _: str = Depends(verify_service_jwt),
+) -> Any:
+    """Generate and return a CSV report for SIU investigations."""
+    import csv
+    import io
+
+    from starlette.responses import StreamingResponse
+
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .where(AIClaimAnalysis.fraud_score >= 0.4)
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(500)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("siu_report_download_error", error=str(exc))
+        rows = []
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Claim ID", "Correlation ID", "Provider ID", "Patient NID (masked)",
+        "Claim Type", "Amount (EGP)", "Fraud Score", "Risk Level",
+        "Refer to SIU", "Created At",
+    ])
+    for r in rows:
+        fr = r.fraud_result or {}
+        risk = fr.get("risk_level", "unknown")
+        refer = fr.get("refer_to_siu", False)
+        writer.writerow([
+            r.claim_id, r.correlation_id, r.provider_id,
+            r.patient_nid_masked, r.claim_type,
+            float(r.total_amount or 0), r.fraud_score,
+            risk, refer, r.created_at.isoformat() if r.created_at else "",
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="siu-report-{report_id}.csv"'
+        },
+    )
+
+
+@router.get("/bff/regulatory/reports/{report_id}/download")
+async def download_regulatory_report(
+    report_id: str,
+    _: str = Depends(verify_service_jwt),
+) -> Any:
+    """Generate and return a CSV report for regulatory compliance."""
+    import csv
+    import io
+
+    from starlette.responses import StreamingResponse
+
+    try:
+        _, session_factory = create_engine_and_session()
+        async with session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(AIClaimAnalysis)
+                    .order_by(AIClaimAnalysis.created_at.desc())
+                    .limit(1000)
+                )
+            ).scalars().all()
+    except Exception as exc:
+        log.warning("regulatory_report_download_error", error=str(exc))
+        rows = []
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Claim ID", "Correlation ID", "Provider ID", "Payer ID",
+        "Patient NID (masked)", "Claim Type", "Amount (EGP)",
+        "AI Decision", "Fraud Score", "Overall Confidence",
+        "Requires Human Review", "Created At", "Completed At",
+    ])
+    for r in rows:
+        writer.writerow([
+            r.claim_id, r.correlation_id, r.provider_id, r.payer_id,
+            r.patient_nid_masked, r.claim_type,
+            float(r.total_amount or 0), r.adjudication_decision,
+            r.fraud_score, r.overall_confidence,
+            r.requires_human_review,
+            r.created_at.isoformat() if r.created_at else "",
+            r.completed_at.isoformat() if r.completed_at else "",
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="regulatory-report-{report_id}.csv"'
+        },
+    )
+
+
 # ─── Medical Code Search (ICD-10-CM + CPT) ──────────────────────────────
 class CodeSearchResult(BaseModel):
     code: str
@@ -2497,20 +2959,32 @@ async def payer_preauth_list(
         rows = []
 
     if rows:
-        items = [
-            PayerPreAuthItem(
-                request_id=f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}",
-                provider_id=r.provider_id or "Unknown",
-                patient_nid_masked=r.patient_nid_masked or "****",
-                icd10="M54.5",
-                procedure="Pre-authorization review",
-                amount=float(r.total_amount or 0),
-                status="pending_review",
-                requested_at=r.created_at,
-                justification="Pending clinical review.",
+        import json as _json_pp
+        redis_pp = RedisService()
+        items = []
+        for r in rows:
+            req_id = f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}"
+            pp_status = "pending_review"
+            try:
+                raw_dec = await redis_pp.get(f"preauth:decision:{req_id}")
+                if raw_dec:
+                    dec = _json_pp.loads(raw_dec)
+                    pp_status = dec.get("status", "pending_review")
+            except Exception:
+                pass
+            items.append(
+                PayerPreAuthItem(
+                    request_id=req_id,
+                    provider_id=r.provider_id or "Unknown",
+                    patient_nid_masked=r.patient_nid_masked or "****",
+                    icd10=extract_icd10_code(r.coding_result) or "—",
+                    procedure=extract_procedure_name(r.coding_result) or "Pre-authorization review",
+                    amount=float(r.total_amount or 0),
+                    status=pp_status,
+                    requested_at=r.created_at,
+                    justification="Pending clinical review.",
+                )
             )
-            for r in rows
-        ]
     else:
         items = [
             PayerPreAuthItem(

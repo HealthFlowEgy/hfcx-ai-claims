@@ -259,11 +259,48 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
         if necessity.eda_formulary_status == "unlisted":
             human_review_reasons.append("Drug not listed in EDA formulary")
 
-    # ── Overall confidence ────────────────────────────────────────────────
+    # ── Overall confidence ────────────────────────────────────────────
     overall_confidence = (
         sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.5
     )
     requires_human_review = len(human_review_reasons) > 0
+
+    # ── Payer settings enforcement ───────────────────────────────────
+    # Read payer-configured thresholds from Redis and apply auto-routing.
+    # If auto_routing_enabled is True and the overall confidence exceeds
+    # auto_approve_threshold, the claim is auto-approved (no human review).
+    try:
+        import json as _json_ps
+
+        from src.services.redis_service import RedisService
+        redis_ps = RedisService()
+        raw_ps = await redis_ps.get("portal_settings:payer:default")
+        if raw_ps:
+            payer_cfg = _json_ps.loads(raw_ps)
+            auto_routing = payer_cfg.get("auto_routing_enabled", True)
+            auto_threshold = float(payer_cfg.get("auto_approve_threshold", 0.9))
+
+            if auto_routing and decision == AdjudicationDecision.APPROVED:
+                if overall_confidence >= auto_threshold:
+                    # High-confidence auto-approve — skip human review
+                    requires_human_review = False
+                    human_review_reasons = []
+                    log.info(
+                        "auto_approve_applied",
+                        claim_id=claim.claim_id,
+                        confidence=overall_confidence,
+                        threshold=auto_threshold,
+                    )
+                elif not requires_human_review:
+                    # Below threshold but no explicit review reasons —
+                    # route to human review for safety
+                    requires_human_review = True
+                    human_review_reasons.append(
+                        f"Confidence {overall_confidence:.2f} below auto-approve "
+                        f"threshold {auto_threshold:.2f}"
+                    )
+    except Exception as exc:
+        log.warning("payer_settings_enforcement_failed", error=str(exc))
 
     ADJUDICATION_DECISIONS.labels(decision=decision.value).inc()
     CLAIMS_PROCESSED.inc()

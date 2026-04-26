@@ -283,6 +283,33 @@ async def coordinate_claim_async(
     # Fire-and-forget the background processing
     asyncio.create_task(_process_claim_background(claim_id, claim))
 
+    # Optimistic UI: store a lightweight placeholder in Redis so the
+    # BFF claims list can return it immediately with "submitted" status.
+    try:
+        redis = RedisService()
+        placeholder = {
+            "claim_id": claim_id,
+            "correlation_id": claim.hcx_correlation_id,
+            "patient_nid_masked": (
+                "*" * (len(claim.patient_id) - 4) + claim.patient_id[-4:]
+                if claim.patient_id and len(claim.patient_id) > 4
+                else "****"
+            ),
+            "provider_id": claim.provider_id,
+            "payer_id": claim.payer_id,
+            "claim_type": claim.claim_type.value,
+            "total_amount": float(claim.total_amount),
+            "status": "submitted",
+            "submitted_at": claim.claim_date.isoformat(),
+        }
+        await redis.setex(
+            f"optimistic_claim:{claim_id}",
+            600,  # 10 min TTL — DB row replaces it once AI completes
+            json.dumps(placeholder),
+        )
+    except Exception as exc:
+        log.warning("optimistic_claim_store_failed", claim_id=claim_id, error=str(exc))
+
     log.info("async_claim_submitted", claim_id=claim_id)
     return AsyncSubmitResponse(
         claim_id=claim_id,
