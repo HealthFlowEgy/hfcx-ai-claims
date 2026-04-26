@@ -424,14 +424,14 @@ export default function NewClaimPage() {
                   <span className="text-xs text-hcx-text-muted">
                     {locale === 'ar' ? 'إجمالي المبلغ' : 'Total Amount'}
                   </span>
-                  <p className="mt-0.5 font-semibold">{formatEgp(providerProfile.total_amount_egp, locale)}</p>
+                  <p className="mt-0.5 font-semibold">{formatEgp(providerProfile.total_amount_egp, locale as 'ar' | 'en')}</p>
                 </div>
                 <div className="rounded-md bg-white/60 p-2.5">
                   <span className="text-xs text-hcx-text-muted">
                     {locale === 'ar' ? 'المبلغ المشبوه' : 'Flagged Amount'}
                   </span>
                   <p className="mt-0.5 font-semibold text-red-600">
-                    {formatEgp(providerProfile.flagged_amount_egp, locale)}
+                    {formatEgp(providerProfile.flagged_amount_egp, locale as 'ar' | 'en')}
                   </p>
                 </div>
               </div>
@@ -500,7 +500,7 @@ export default function NewClaimPage() {
                 <span className="text-xs text-hcx-text-muted">
                   {locale === 'ar' ? 'إجمالي المبلغ' : 'Total Amount'}
                 </span>
-                <p className="mt-0.5 font-semibold">{formatEgp(beneficiaryProfile.total_amount_egp, locale)}</p>
+                <p className="mt-0.5 font-semibold">{formatEgp(beneficiaryProfile.total_amount_egp, locale as 'ar' | 'en')}</p>
               </div>
             </CardContent>
           </Card>
