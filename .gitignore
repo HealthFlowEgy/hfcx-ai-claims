@@ -41,3 +41,4 @@ logs/
 models/*.bin
 models/*.gguf
 kubectl
+coverage.xml
