@@ -272,7 +272,8 @@
       "reasonCode": "كود السبب",
       "notes": "ملاحظات",
       "submitDecision": "إرسال القرار",
-      "similarClaims": "مطالبات مشابهة"
+      "similarClaims": "مطالبات مشابهة",
+      "manualReview": "مراجعة يدوية"
     },
     "analytics": {
       "title": "التحليلات",

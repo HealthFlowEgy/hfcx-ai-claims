@@ -272,7 +272,8 @@
       "reasonCode": "Reason code",
       "notes": "Notes",
       "submitDecision": "Submit decision",
-      "similarClaims": "Similar claims"
+      "similarClaims": "Similar claims",
+      "manualReview": "Manual Review"
     },
     "analytics": {
       "title": "Analytics",

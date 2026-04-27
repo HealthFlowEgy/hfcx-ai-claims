@@ -623,7 +623,9 @@ export const api = {
         claim_type: string;
         patient_nid_masked: string;
         icd10: string;
+        icd10_name?: string;
         procedure: string;
+        procedure_name?: string;
         amount: number;
         status: string;
         requested_at: string;
@@ -631,6 +633,10 @@ export const api = {
         auth_number?: string;
         valid_until?: string;
         justification?: string;
+        decision_reason?: string | null;
+        approved_amount?: number | null;
+        approved_services?: string | null;
+        partial_conditions?: string | null;
       }>;
     }>('/internal/ai/bff/provider/preauth', opts);
   },

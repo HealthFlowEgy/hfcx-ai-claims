@@ -554,11 +554,27 @@ function AIAnalysisPanel({ claim }: { claim: ClaimSummary }) {
       )}
 
       {!normalizedAiData && claim.ai_recommendation && (
-        <div className="rounded-lg border border-hcx-primary/20 bg-hcx-primary-light/30 p-3">
+        <div className={cn(
+          'rounded-lg border p-3',
+          claim.ai_recommendation === 'approved'
+            ? 'border-emerald-200 bg-emerald-50'
+            : claim.ai_recommendation === 'denied'
+              ? 'border-red-200 bg-red-50'
+              : 'border-amber-200 bg-amber-50',
+        )}>
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">{t('recommendationBadge')}</span>
-            <span className="rounded-full bg-hcx-primary/10 px-2 py-0.5 text-xs font-semibold capitalize text-hcx-primary">
-              {claim.ai_recommendation}
+            <span className={cn(
+              'rounded-full px-2 py-0.5 text-xs font-semibold capitalize',
+              claim.ai_recommendation === 'approved'
+                ? 'bg-emerald-100 text-emerald-700'
+                : claim.ai_recommendation === 'denied'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700',
+            )}>
+              {claim.ai_recommendation === 'pended'
+                ? (t('manualReview') ?? 'Manual Review')
+                : claim.ai_recommendation}
             </span>
           </div>
           {claim.ai_risk_score != null && (
