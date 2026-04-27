@@ -79,14 +79,18 @@ class EligibilityAgent:
             claim.patient_id, claim.payer_id, claim.service_date, claim.claim_type
         )
 
-        # L1: Redis cache
+        # L1: Redis cache — skip degraded results so registry is retried
         cached = await self._redis.get(cache_key)
         if cached:
             try:
                 data = json.loads(cached)
-                data["cache_hit"] = True
-                log.debug("eligibility_cache_hit", patient_id=claim.patient_id)
-                return EligibilityResult(**data)
+                if data.get("error_message"):
+                    # Degraded result — don't serve from cache, retry registry
+                    log.debug("eligibility_cache_skip_degraded", patient_id=claim.patient_id)
+                else:
+                    data["cache_hit"] = True
+                    log.debug("eligibility_cache_hit", patient_id=claim.patient_id)
+                    return EligibilityResult(**data)
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -94,10 +98,11 @@ class EligibilityAgent:
         with AGENT_LATENCY.labels(agent="eligibility").time():
             result = await self._fetch_from_registry(claim)
 
-        # Cache result
+        # Cache result — use short TTL for degraded results so registry is retried soon
+        ttl = 60 if result.error_message else settings.redis_eligibility_ttl_seconds
         await self._redis.setex(
             cache_key,
-            settings.redis_eligibility_ttl_seconds,
+            ttl,
             result.model_dump_json(),
         )
         # Maintain prefix index so invalidate_cache can find this key later.

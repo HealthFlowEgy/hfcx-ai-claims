@@ -1438,28 +1438,7 @@ async def siu_cross_payer_search(
         rows = []
 
     if not rows:
-        return [
-            CrossPayerSearchResult(
-                claim_id="CLAIM-2026-0100",
-                correlation_id="corr-100",
-                payer_id="MISR-INSURANCE-001",
-                provider_id=req.provider_id or "HCP-EG-CAIRO-001",
-                total_amount=1850.0,
-                claim_type="outpatient",
-                submitted_at=datetime.now(UTC) - timedelta(days=1),
-                is_potential_duplicate=False,
-            ),
-            CrossPayerSearchResult(
-                claim_id="CLAIM-2026-0101",
-                correlation_id="corr-101",
-                payer_id="ALLIANZ-EG-001",
-                provider_id=req.provider_id or "HCP-EG-CAIRO-001",
-                total_amount=1850.0,
-                claim_type="outpatient",
-                submitted_at=datetime.now(UTC) - timedelta(days=1),
-                is_potential_duplicate=True,
-            ),
-        ]
+        return []
 
     # Mark duplicates: same patient + same day across different payers.
     seen: dict[tuple[str | None, str | None], int] = {}

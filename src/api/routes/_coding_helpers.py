@@ -130,7 +130,9 @@ def _ensure_lookup_loaded() -> None:
     import csv
     from pathlib import Path
 
-    data_dir = Path(__file__).resolve().parent.parent / "data"
+    # __file__ = src/api/routes/_coding_helpers.py
+    # Data lives at src/data/, i.e. three levels up from routes/
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
 
     # ICD-10
     icd_path = data_dir / "icd10cm-codes-2026.txt"
