@@ -28,7 +28,6 @@ from sqlalchemy import case, func, literal, select, text
 from src.api.middleware import verify_service_jwt
 from src.api.routes._coding_helpers import (
     extract_icd10_code,
-    extract_icd10_label,
     extract_procedure_name,
     lookup_cpt_name,
     lookup_icd10_name,
