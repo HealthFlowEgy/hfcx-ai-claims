@@ -296,7 +296,7 @@ async def node_adjudicate(state: dict[str, Any]) -> dict[str, Any]:
             )
 
             # Auto-deny: if fraud score exceeds auto_deny threshold
-            fraud_score = getattr(state.get("fraud_result"), "fraud_score", None) or 0.0
+            fraud_score = getattr(state.get("fraud"), "fraud_score", None) or 0.0
             if auto_routing and fraud_score >= auto_deny_threshold:
                 decision = AdjudicationDecision.DENIED
                 requires_human_review = False

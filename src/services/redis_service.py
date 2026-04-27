@@ -147,6 +147,15 @@ class RedisService:
             log.warning("redis_lrange_failed", key=key, error=str(exc))
             return []
 
+    async def lset(self, key: str, index: int, value: str) -> bool:
+        """Set the value of an element in a list by its index."""
+        try:
+            await self._client.lset(key, index, value)
+            return True
+        except Exception as exc:
+            log.warning("redis_lset_failed", key=key, index=index, error=str(exc))
+            return False
+
     async def expire(self, key: str, ttl_seconds: int) -> bool:
         """Set a TTL on a Redis key."""
         try:

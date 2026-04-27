@@ -28,7 +28,9 @@ type PreAuthItem = {
   provider_id: string;
   patient_nid_masked: string;
   icd10: string;
+  icd10_name?: string;
   procedure: string;
+  procedure_name?: string;
   amount: number;
   status: string;
   requested_at: string;
@@ -37,6 +39,10 @@ type PreAuthItem = {
   confidence?: number;
   guidelines?: string[];
   claim_id?: string;
+  decision_reason?: string | null;
+  approved_amount?: number | null;
+  approved_services?: string | null;
+  partial_conditions?: string | null;
 };
 
 type DecisionType = 'approved' | 'partial' | 'more_info' | 'denied';
@@ -68,6 +74,10 @@ export default function PayerPreAuthPage() {
     decision: DecisionType;
   } | null>(null);
   const [decisionReason, setDecisionReason] = useState('');
+  // Partial approval form fields
+  const [partialAmount, setPartialAmount] = useState('');
+  const [partialServices, setPartialServices] = useState('');
+  const [partialConditions, setPartialConditions] = useState('');
 
   // Use typed API function instead of raw fetch
   const decisionMutation = useMutation({
@@ -75,15 +85,24 @@ export default function PayerPreAuthPage() {
       requestId,
       decision,
       reason,
+      approved_amount,
+      approved_services,
+      partial_conditions,
     }: {
       requestId: string;
       decision: DecisionType;
       reason?: string;
+      approved_amount?: number;
+      approved_services?: string;
+      partial_conditions?: string;
     }) => {
       return api.updatePreauthStatus({
         request_id: requestId,
         decision,
         reason,
+        approved_amount,
+        approved_services,
+        partial_conditions,
       });
     },
     onSuccess: (_data, variables) => {
@@ -104,7 +123,14 @@ export default function PayerPreAuthPage() {
             ...old,
             items: old.items.map((item) =>
               item.request_id === variables.requestId
-                ? { ...item, status: variables.decision }
+                ? {
+                    ...item,
+                    status: variables.decision,
+                    decision_reason: variables.reason || null,
+                    approved_amount: variables.approved_amount || null,
+                    approved_services: variables.approved_services || null,
+                    partial_conditions: variables.partial_conditions || null,
+                  }
                 : item,
             ),
           };
@@ -113,6 +139,9 @@ export default function PayerPreAuthPage() {
       queryClient.invalidateQueries({ queryKey: ['payer', 'preauth'] });
       setConfirmDecision(null);
       setDecisionReason('');
+      setPartialAmount('');
+      setPartialServices('');
+      setPartialConditions('');
     },
     onError: () => {
       toast({
@@ -131,6 +160,10 @@ export default function PayerPreAuthPage() {
     if (!rid) return;
     if (decision === 'denied' || decision === 'partial') {
       setConfirmDecision({ requestId: rid, decision });
+      // Pre-fill partial amount with original amount
+      if (decision === 'partial' && selected) {
+        setPartialAmount(String(selected.amount));
+      }
     } else {
       decisionMutation.mutate({ requestId: rid, decision });
     }
@@ -141,6 +174,13 @@ export default function PayerPreAuthPage() {
     decisionMutation.mutate({
       ...confirmDecision,
       reason: decisionReason || undefined,
+      ...(confirmDecision.decision === 'partial'
+        ? {
+            approved_amount: partialAmount ? parseFloat(partialAmount) : undefined,
+            approved_services: partialServices || undefined,
+            partial_conditions: partialConditions || undefined,
+          }
+        : {}),
     });
   };
 
@@ -241,8 +281,21 @@ export default function PayerPreAuthPage() {
                     </div>
                     <div className="mt-1.5 flex items-center gap-1.5 text-sm">
                       <span className="font-medium">{r.icd10}</span>
-                      <span className="text-hcx-text-muted">·</span>
-                      <span className="truncate text-hcx-text-muted">{r.procedure}</span>
+                      {r.icd10_name && (
+                        <>
+                          <span className="text-hcx-text-muted">·</span>
+                          <span className="truncate text-xs text-hcx-text-muted">{r.icd10_name}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-sm">
+                      <span className="text-hcx-text-muted">{r.procedure}</span>
+                      {r.procedure_name && (
+                        <>
+                          <span className="text-hcx-text-muted">·</span>
+                          <span className="truncate text-xs text-hcx-text-muted">{r.procedure_name}</span>
+                        </>
+                      )}
                     </div>
                     <div className="mt-1 text-xs text-hcx-text-muted">{r.provider_id}</div>
                     <div className="mt-1.5 flex items-center justify-between text-xs text-hcx-text-muted">
@@ -357,12 +410,18 @@ export default function PayerPreAuthPage() {
                     <div className="rounded-md bg-muted/50 p-2.5">
                       <span className="text-xs text-hcx-text-muted">ICD-10</span>
                       <p className="mt-0.5 text-sm font-medium">{selected.icd10}</p>
+                      {selected.icd10_name && (
+                        <p className="mt-0.5 text-xs text-hcx-text-muted">{selected.icd10_name}</p>
+                      )}
                     </div>
                     <div className="rounded-md bg-muted/50 p-2.5">
                       <span className="text-xs text-hcx-text-muted">
                         {locale === 'ar' ? 'الإجراء' : 'Procedure'}
                       </span>
                       <p className="mt-0.5 text-sm">{selected.procedure}</p>
+                      {selected.procedure_name && (
+                        <p className="mt-0.5 text-xs text-hcx-text-muted">{selected.procedure_name}</p>
+                      )}
                     </div>
                   </div>
 
@@ -390,6 +449,56 @@ export default function PayerPreAuthPage() {
                       </ul>
                     </div>
                   )}
+
+                  {/* Decision Reason (shown when already decided) */}
+                  {selected.decision_reason && (
+                    <div className={cn(
+                      'rounded-md border p-3',
+                      selected.status === 'denied'
+                        ? 'border-hcx-danger/30 bg-hcx-danger/5'
+                        : selected.status === 'partial'
+                          ? 'border-hcx-warning/30 bg-hcx-warning/5'
+                          : 'border-hcx-success/30 bg-hcx-success/5',
+                    )}>
+                      <h3 className="mb-1 text-xs font-semibold text-hcx-text-muted">
+                        {locale === 'ar' ? 'سبب القرار' : 'Decision Reason'}
+                      </h3>
+                      <p className="text-sm">{selected.decision_reason}</p>
+                    </div>
+                  )}
+
+                  {/* Partial Approval Details (shown when status is partial) */}
+                  {selected.status === 'partial' && (
+                    <div className="rounded-md border border-hcx-warning/30 bg-hcx-warning/5 p-3 space-y-2">
+                      <h3 className="text-xs font-semibold text-hcx-text-muted">
+                        {locale === 'ar' ? 'تفاصيل الموافقة الجزئية' : 'Partial Approval Details'}
+                      </h3>
+                      {selected.approved_amount != null && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-hcx-text-muted">
+                            {locale === 'ar' ? 'المبلغ الموافق عليه' : 'Approved Amount'}
+                          </span>
+                          <span className="font-semibold">{formatEgp(selected.approved_amount, locale)}</span>
+                        </div>
+                      )}
+                      {selected.approved_services && (
+                        <div className="text-sm">
+                          <span className="text-xs text-hcx-text-muted">
+                            {locale === 'ar' ? 'الخدمات الموافق عليها' : 'Approved Services'}
+                          </span>
+                          <p className="mt-0.5">{selected.approved_services}</p>
+                        </div>
+                      )}
+                      {selected.partial_conditions && (
+                        <div className="text-sm">
+                          <span className="text-xs text-hcx-text-muted">
+                            {locale === 'ar' ? 'الشروط' : 'Conditions'}
+                          </span>
+                          <p className="mt-0.5">{selected.partial_conditions}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -411,12 +520,58 @@ export default function PayerPreAuthPage() {
                           : locale === 'ar' ? 'تأكيد الموافقة الجزئية' : 'Confirm Partial Approval'}
                       </AlertTitle>
                       <AlertDescription className="space-y-3">
+                        {/* Partial approval form */}
+                        {confirmDecision.decision === 'partial' && (
+                          <div className="mt-2 space-y-2">
+                            <div>
+                              <label className="text-xs font-medium text-hcx-text-muted">
+                                {locale === 'ar' ? 'المبلغ الموافق عليه (ج.م.)' : 'Approved Amount (EGP)'}
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={partialAmount}
+                                onChange={(e) => setPartialAmount(e.target.value)}
+                                placeholder={locale === 'ar' ? 'المبلغ الموافق عليه' : 'Approved amount'}
+                                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-hcx-text-muted">
+                                {locale === 'ar' ? 'الخدمات الموافق عليها' : 'Approved Services'}
+                              </label>
+                              <input
+                                type="text"
+                                value={partialServices}
+                                onChange={(e) => setPartialServices(e.target.value)}
+                                placeholder={locale === 'ar' ? 'مثال: فحص أشعة فقط' : 'e.g. X-ray only, no MRI'}
+                                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-hcx-text-muted">
+                                {locale === 'ar' ? 'الشروط' : 'Conditions'}
+                              </label>
+                              <input
+                                type="text"
+                                value={partialConditions}
+                                onChange={(e) => setPartialConditions(e.target.value)}
+                                placeholder={locale === 'ar' ? 'مثال: يتطلب تقرير طبي إضافي' : 'e.g. Requires additional medical report'}
+                                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-sm"
+                              />
+                            </div>
+                          </div>
+                        )}
                         <textarea
                           rows={2}
                           placeholder={
-                            locale === 'ar'
-                              ? 'السبب (اختياري للموافقة الجزئية، مطلوب للرفض)...'
-                              : 'Reason (optional for partial, recommended for denial)...'
+                            confirmDecision.decision === 'denied'
+                              ? locale === 'ar'
+                                ? 'سبب الرفض (مطلوب)...'
+                                : 'Reason for denial (required)...'
+                              : locale === 'ar'
+                                ? 'سبب الموافقة الجزئية...'
+                                : 'Reason for partial approval...'
                           }
                           value={decisionReason}
                           onChange={(e) => setDecisionReason(e.target.value)}
@@ -427,7 +582,7 @@ export default function PayerPreAuthPage() {
                             variant="destructive"
                             size="sm"
                             onClick={confirmAndSubmit}
-                            disabled={isPending}
+                            disabled={isPending || (confirmDecision.decision === 'denied' && !decisionReason.trim())}
                           >
                             {isPending ? (
                               <Loader2 className="size-4 animate-spin" />
@@ -441,6 +596,9 @@ export default function PayerPreAuthPage() {
                             onClick={() => {
                               setConfirmDecision(null);
                               setDecisionReason('');
+                              setPartialAmount('');
+                              setPartialServices('');
+                              setPartialConditions('');
                             }}
                           >
                             {locale === 'ar' ? 'إلغاء' : 'Cancel'}

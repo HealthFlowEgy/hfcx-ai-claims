@@ -19,6 +19,7 @@ import { formatDate, formatEgp } from '@/lib/utils';
 /**
  * Fix #12: Pre-auth status tracking with visual timeline
  * Fix #13: Show approval details (auth number, valid until, authorized qty)
+ * Fix: Show ICD-10 names, procedure descriptions, rejection reasons, partial approval details
  */
 
 type PreAuthRequest = {
@@ -26,7 +27,9 @@ type PreAuthRequest = {
   claim_type: string;
   patient_nid_masked: string;
   icd10: string;
+  icd10_name?: string;
   procedure: string;
+  procedure_name?: string;
   amount: number;
   status: ClaimStatus;
   requested_at: string;
@@ -34,6 +37,10 @@ type PreAuthRequest = {
   auth_number?: string;
   valid_until?: string;
   justification?: string;
+  decision_reason?: string | null;
+  approved_amount?: number | null;
+  approved_services?: string | null;
+  partial_conditions?: string | null;
 };
 
 /** Fix #12: Status timeline steps */
@@ -47,12 +54,14 @@ function getStepIndex(status: string): number {
   if (status === 'approved' || status === 'settled') return 2;
   if (status === 'in_review' || status === 'ai_analyzed') return 1;
   if (status === 'denied') return 3; // special
+  if (status === 'partial') return 2; // partial is like approved
   return 0;
 }
 
 function StatusTimeline({ status }: { status: string }) {
   const currentStep = getStepIndex(status);
   const isDenied = status === 'denied';
+  const isPartial = status === 'partial';
 
   return (
     <div className="flex items-center gap-1 mt-2">
@@ -64,16 +73,20 @@ function StatusTimeline({ status }: { status: string }) {
             {i > 0 && (
               <div
                 className={`h-0.5 w-6 ${
-                  isActive ? 'bg-hcx-success' : 'bg-muted'
+                  isActive ? (isPartial ? 'bg-hcx-warning' : 'bg-hcx-success') : 'bg-muted'
                 }`}
               />
             )}
             <div
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                 isCurrent
-                  ? 'bg-hcx-success/20 text-hcx-success'
+                  ? isPartial
+                    ? 'bg-hcx-warning/20 text-hcx-warning'
+                    : 'bg-hcx-success/20 text-hcx-success'
                   : isActive
-                    ? 'bg-hcx-success/10 text-hcx-success'
+                    ? isPartial
+                      ? 'bg-hcx-warning/10 text-hcx-warning'
+                      : 'bg-hcx-success/10 text-hcx-success'
                     : 'bg-muted text-hcx-text-muted'
               }`}
             >
@@ -260,7 +273,15 @@ export default function ProviderPreAuthPage() {
                     <ClaimStatusBadge status={r.status} size="sm" />
                   </div>
                   <div className="mt-1 text-sm text-hcx-text-muted">
-                    {r.claim_type} · {r.icd10} · {r.procedure}
+                    {r.claim_type} · {r.icd10}
+                    {r.icd10_name && (
+                      <span className="text-xs"> ({r.icd10_name})</span>
+                    )}
+                    {' · '}
+                    {r.procedure}
+                    {r.procedure_name && (
+                      <span className="text-xs"> ({r.procedure_name})</span>
+                    )}
                   </div>
                   {r.justification && (
                     <p className="mt-2 text-xs italic text-hcx-text-muted">
@@ -302,12 +323,76 @@ export default function ProviderPreAuthPage() {
                   </AlertDescription>
                 </Alert>
               )}
-              {r.status === 'denied' && !r.auth_number && (
+
+              {/* Rejection reason */}
+              {r.status === 'denied' && (
                 <Alert variant="destructive" className="mt-3">
                   <XCircle className="size-4" />
-                  <AlertTitle>Pre-authorization Denied</AlertTitle>
+                  <AlertTitle>
+                    {locale === 'ar' ? 'تم رفض التصريح المسبق' : 'Pre-authorization Denied'}
+                  </AlertTitle>
                   <AlertDescription className="text-xs">
-                    This request was not approved. You may submit a new request with additional clinical justification.
+                    {r.decision_reason ? (
+                      <div>
+                        <span className="font-semibold">
+                          {locale === 'ar' ? 'سبب الرفض: ' : 'Reason: '}
+                        </span>
+                        {r.decision_reason}
+                      </div>
+                    ) : (
+                      locale === 'ar'
+                        ? 'لم تتم الموافقة على هذا الطلب. يمكنك تقديم طلب جديد مع مبرر سريري إضافي.'
+                        : 'This request was not approved. You may submit a new request with additional clinical justification.'
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Partial approval details */}
+              {r.status === 'partial' && (
+                <Alert variant="warning" className="mt-3">
+                  <CheckCircle2 className="size-4" />
+                  <AlertTitle>
+                    {locale === 'ar' ? 'موافقة جزئية' : 'Partial Approval'}
+                  </AlertTitle>
+                  <AlertDescription className="text-xs space-y-1">
+                    {r.approved_amount != null && (
+                      <div>
+                        <span className="font-semibold">
+                          {locale === 'ar' ? 'المبلغ الموافق عليه: ' : 'Approved Amount: '}
+                        </span>
+                        {formatEgp(r.approved_amount, locale)}
+                        {r.amount > 0 && (
+                          <span className="text-hcx-text-muted">
+                            {' '}({locale === 'ar' ? 'من أصل' : 'out of'} {formatEgp(r.amount, locale)})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {r.approved_services && (
+                      <div>
+                        <span className="font-semibold">
+                          {locale === 'ar' ? 'الخدمات الموافق عليها: ' : 'Approved Services: '}
+                        </span>
+                        {r.approved_services}
+                      </div>
+                    )}
+                    {r.partial_conditions && (
+                      <div>
+                        <span className="font-semibold">
+                          {locale === 'ar' ? 'الشروط: ' : 'Conditions: '}
+                        </span>
+                        {r.partial_conditions}
+                      </div>
+                    )}
+                    {r.decision_reason && (
+                      <div>
+                        <span className="font-semibold">
+                          {locale === 'ar' ? 'السبب: ' : 'Reason: '}
+                        </span>
+                        {r.decision_reason}
+                      </div>
+                    )}
                   </AlertDescription>
                 </Alert>
               )}

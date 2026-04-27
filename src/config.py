@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     keycloak_client_secret: str = "dev-secret"
 
     # ── HFCX Platform ────────────────────────────────────────────────────
-    hfcx_registry_url: AnyHttpUrl = "http://localhost:8081/hcx/v0.8/participant/info"  # type: ignore[assignment]
+    hfcx_registry_url: AnyHttpUrl = "http://localhost:8090/internal/ai/mock-registry"  # type: ignore[assignment]
     hfcx_api_gateway_url: AnyHttpUrl = "http://localhost:8082"  # type: ignore[assignment]
 
     # ── NDP (National Drug Platform) — FR-MC-003 ─────────────────────────

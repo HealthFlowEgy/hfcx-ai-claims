@@ -28,7 +28,10 @@ from sqlalchemy import case, func, literal, select, text
 from src.api.middleware import verify_service_jwt
 from src.api.routes._coding_helpers import (
     extract_icd10_code,
+    extract_icd10_label,
     extract_procedure_name,
+    lookup_cpt_name,
+    lookup_icd10_name,
 )
 from src.models.orm import AIClaimAnalysis, create_engine_and_session
 from src.services.redis_service import RedisService
@@ -2100,7 +2103,9 @@ class PreAuthItem(BaseModel):
     claim_type: str
     patient_nid_masked: str
     icd10: str
+    icd10_name: str = ""
     procedure: str
+    procedure_name: str = ""
     amount: float
     status: str
     requested_at: datetime
@@ -2108,6 +2113,10 @@ class PreAuthItem(BaseModel):
     auth_number: str | None = None
     valid_until: datetime | None = None
     justification: str | None = None
+    decision_reason: str | None = None
+    approved_amount: float | None = None
+    approved_services: str | None = None
+    partial_conditions: str | None = None
 
 
 class PreAuthListResponse(BaseModel):
@@ -2146,32 +2155,49 @@ async def provider_preauth(
         log.warning("bff_provider_preauth_fallback", error=str(exc))
         rows = []
 
+    import json as _json_pa
+    redis_pa = RedisService()
+
     if rows:
-        import json as _json_pa
-        redis_pa = RedisService()
         items = []
         for r in rows:
             req_id = f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}"
             # Check Redis for payer decision on this pre-auth
             pa_status = "in_review"
+            decision_reason = None
+            approved_amount = None
+            approved_services = None
+            partial_conditions = None
             try:
                 raw_dec = await redis_pa.get(f"preauth:decision:{req_id}")
                 if raw_dec:
                     dec = _json_pa.loads(raw_dec)
                     pa_status = dec.get("status", "in_review")
+                    decision_reason = dec.get("reason")
+                    approved_amount = dec.get("approved_amount")
+                    approved_services = dec.get("approved_services")
+                    partial_conditions = dec.get("partial_conditions")
             except Exception:
                 pass
+            icd10_code = extract_icd10_code(r.coding_result) or "\u2014"
+            proc_code = extract_procedure_name(r.coding_result) or "Pre-authorization review"
             items.append(
                 PreAuthItem(
                     request_id=req_id,
                     claim_type=r.claim_type or "outpatient",
                     patient_nid_masked=r.patient_nid_masked or "****",
-                    icd10=extract_icd10_code(r.coding_result) or "—",
-                    procedure=extract_procedure_name(r.coding_result) or "Pre-authorization review",
+                    icd10=icd10_code,
+                    icd10_name=lookup_icd10_name(icd10_code) if icd10_code != "\u2014" else "",
+                    procedure=proc_code,
+                    procedure_name=lookup_cpt_name(proc_code) if proc_code != "Pre-authorization review" else "",
                     amount=float(r.total_amount or 0),
                     status=pa_status,
                     requested_at=r.created_at,
                     justification="Pending clinical review.",
+                    decision_reason=decision_reason,
+                    approved_amount=approved_amount,
+                    approved_services=approved_services,
+                    partial_conditions=partial_conditions,
                 )
             )
     else:
@@ -2181,7 +2207,9 @@ async def provider_preauth(
                 claim_type="inpatient",
                 patient_nid_masked="**********4567",
                 icd10="M54.5",
+                icd10_name=lookup_icd10_name("M54.5"),
                 procedure="MRI Lumbar",
+                procedure_name="MRI Lumbar Spine",
                 amount=4200.0,
                 status="in_review",
                 requested_at=now - timedelta(days=1),
@@ -2192,7 +2220,9 @@ async def provider_preauth(
                 claim_type="outpatient",
                 patient_nid_masked="**********8910",
                 icd10="E11.9",
+                icd10_name=lookup_icd10_name("E11.9"),
                 procedure="Continuous glucose monitor",
+                procedure_name="Continuous Glucose Monitoring",
                 amount=1800.0,
                 status="approved",
                 requested_at=now - timedelta(days=3),
@@ -2203,12 +2233,28 @@ async def provider_preauth(
         ]
 
     # ISSUE-023/047: Also include Redis-persisted preauth requests
-    import json as _json
     try:
-        redis = RedisService()
-        cached_items = await redis.lrange("preauth:requests", 0, 50)
+        cached_items = await redis_pa.lrange("preauth:requests", 0, 50)
         for raw in (cached_items or []):
-            parsed = _json.loads(raw)
+            parsed = _json_pa.loads(raw)
+            req_id = parsed.get("request_id", "PA-unknown")
+            # Check for payer decision on this Redis-persisted item
+            try:
+                raw_dec = await redis_pa.get(f"preauth:decision:{req_id}")
+                if raw_dec:
+                    dec = _json_pa.loads(raw_dec)
+                    parsed["status"] = dec.get("status", parsed.get("status", "submitted"))
+                    parsed["decision_reason"] = dec.get("reason")
+                    parsed["approved_amount"] = dec.get("approved_amount")
+                    parsed["approved_services"] = dec.get("approved_services")
+                    parsed["partial_conditions"] = dec.get("partial_conditions")
+            except Exception:
+                pass
+            # Enrich with ICD-10 and procedure names
+            icd_code = parsed.get("icd10", "")
+            proc_code = parsed.get("procedure", "")
+            parsed["icd10_name"] = lookup_icd10_name(icd_code) if icd_code else ""
+            parsed["procedure_name"] = lookup_cpt_name(proc_code) if proc_code else ""
             items.append(PreAuthItem(**parsed))
     except Exception as exc:
         log.warning("bff_preauth_redis_fallback", error=str(exc))
@@ -2977,7 +3023,9 @@ class PayerPreAuthItem(BaseModel):
     provider_id: str
     patient_nid_masked: str
     icd10: str
+    icd10_name: str = ""
     procedure: str
+    procedure_name: str = ""
     amount: float
     status: str
     requested_at: datetime
@@ -2986,6 +3034,10 @@ class PayerPreAuthItem(BaseModel):
     confidence: float = 0.0
     guidelines: list[str] = []
     claim_id: str | None = None
+    decision_reason: str | None = None
+    approved_amount: float | None = None
+    approved_services: str | None = None
+    partial_conditions: str | None = None
 
 
 class PayerPreAuthListResponse(BaseModel):
@@ -3016,21 +3068,30 @@ async def payer_preauth_list(
         log.warning("bff_payer_preauth_fallback", error=str(exc))
         rows = []
 
+    import json as _json_pp
+    redis_pp = RedisService()
+
     if rows:
-        import json as _json_pp
-        redis_pp = RedisService()
         items = []
         for r in rows:
             req_id = f"PA-{r.claim_id[-6:] if r.claim_id else '000000'}"
             pp_status = "pending_review"
+            decision_reason = None
+            approved_amount = None
+            approved_services = None
+            partial_conditions = None
             try:
                 raw_dec = await redis_pp.get(f"preauth:decision:{req_id}")
                 if raw_dec:
                     dec = _json_pp.loads(raw_dec)
                     pp_status = dec.get("status", "pending_review")
+                    decision_reason = dec.get("reason")
+                    approved_amount = dec.get("approved_amount")
+                    approved_services = dec.get("approved_services")
+                    partial_conditions = dec.get("partial_conditions")
             except Exception:
                 pass
-            # Derive verdict from necessity_result
+            # Derive verdict from ALL agent signals, not just necessity
             nec = r.necessity_result or {}
             if isinstance(nec, str):
                 import json as _jnec
@@ -3039,25 +3100,52 @@ async def payer_preauth_list(
                 except Exception:
                     nec = {}
             is_necessary = nec.get("is_medically_necessary", nec.get("is_necessary"))
-            if is_necessary is True:
-                verdict = "necessary"
+
+            # Check fraud result
+            fraud_res = r.fraud_result or {}
+            if isinstance(fraud_res, str):
+                import json as _jfr
+                try:
+                    fraud_res = _jfr.loads(fraud_res)
+                except Exception:
+                    fraud_res = {}
+            fraud_score = float(fraud_res.get("fraud_score", 0) or 0)
+
+            # Use the coordinator's actual adjudication decision if available
+            ai_decision = r.adjudication_decision
+            conf = float(r.overall_confidence or r.confidence or 0)
+
+            if ai_decision == "denied":
+                verdict = "not_justified"
+            elif ai_decision == "pended":
+                verdict = "needs_review"
             elif is_necessary is False:
                 verdict = "not_justified"
+            elif fraud_score >= 0.5 or conf < 0.4:
+                # Medium+ fraud or very low confidence → needs review
+                verdict = "needs_review"
+            elif is_necessary is True and fraud_score < 0.3 and conf >= 0.6:
+                verdict = "necessary"
+            elif is_necessary is True:
+                # Necessary but with some risk flags
+                verdict = "needs_review"
             else:
                 verdict = "needs_review"
             # Extract guidelines
             guidelines = nec.get("clinical_guidelines_references", nec.get("guidelines", []))
             if isinstance(guidelines, str):
                 guidelines = [guidelines]
-            # Confidence
-            conf = float(r.overall_confidence or r.confidence or 0)
+            icd10_code = extract_icd10_code(r.coding_result) or "\u2014"
+            proc_code = extract_procedure_name(r.coding_result) or "Pre-authorization review"
             items.append(
                 PayerPreAuthItem(
                     request_id=req_id,
                     provider_id=r.provider_id or "Unknown",
                     patient_nid_masked=r.patient_nid_masked or "****",
-                    icd10=extract_icd10_code(r.coding_result) or "—",
-                    procedure=extract_procedure_name(r.coding_result) or "Pre-authorization review",
+                    icd10=icd10_code,
+                    icd10_name=lookup_icd10_name(icd10_code) if icd10_code != "\u2014" else "",
+                    procedure=proc_code,
+                    procedure_name=lookup_cpt_name(proc_code) if proc_code != "Pre-authorization review" else "",
                     amount=float(r.total_amount or 0),
                     status=pp_status,
                     requested_at=r.created_at,
@@ -3066,6 +3154,10 @@ async def payer_preauth_list(
                     confidence=conf,
                     guidelines=guidelines if isinstance(guidelines, list) else [],
                     claim_id=r.claim_id,
+                    decision_reason=decision_reason,
+                    approved_amount=approved_amount,
+                    approved_services=approved_services,
+                    partial_conditions=partial_conditions,
                 )
             )
     else:
@@ -3075,7 +3167,9 @@ async def payer_preauth_list(
                 provider_id="Kasr El Aini Hospital",
                 patient_nid_masked="**********4567",
                 icd10="M54.5",
+                icd10_name=lookup_icd10_name("M54.5"),
                 procedure="MRI Lumbar Spine",
+                procedure_name="MRI Lumbar Spine",
                 amount=4200.0,
                 status="pending_review",
                 requested_at=now - timedelta(days=1),
@@ -3089,7 +3183,9 @@ async def payer_preauth_list(
                 provider_id="Alexandria Medical Center",
                 patient_nid_masked="**********8910",
                 icd10="E11.9",
+                icd10_name=lookup_icd10_name("E11.9"),
                 procedure="Continuous glucose monitor",
+                procedure_name="Continuous Glucose Monitoring",
                 amount=1800.0,
                 status="approved",
                 requested_at=now - timedelta(days=3),
@@ -3100,23 +3196,47 @@ async def payer_preauth_list(
         ]
 
     # Also include Redis-persisted preauth requests from providers
-    import json as _json
     try:
-        redis = RedisService()
-        cached = await redis.lrange("preauth:requests", 0, 50)
+        cached = await redis_pp.lrange("preauth:requests", 0, 50)
         for raw in (cached or []):
-            parsed = _json.loads(raw)
+            parsed = _json_pp.loads(raw)
+            req_id = parsed.get("request_id", "PA-unknown")
+            # Check for payer decision on this Redis-persisted item
+            pa_status = parsed.get("status", "pending_review")
+            decision_reason = None
+            approved_amount = None
+            approved_services = None
+            partial_conditions = None
+            try:
+                raw_dec = await redis_pp.get(f"preauth:decision:{req_id}")
+                if raw_dec:
+                    dec = _json_pp.loads(raw_dec)
+                    pa_status = dec.get("status", pa_status)
+                    decision_reason = dec.get("reason")
+                    approved_amount = dec.get("approved_amount")
+                    approved_services = dec.get("approved_services")
+                    partial_conditions = dec.get("partial_conditions")
+            except Exception:
+                pass
+            icd_code = parsed.get("icd10", "")
+            proc_code = parsed.get("procedure", "")
             items.append(PayerPreAuthItem(
-                request_id=parsed.get("request_id", "PA-unknown"),
+                request_id=req_id,
                 provider_id=parsed.get("provider_id", "Unknown"),
                 patient_nid_masked=parsed.get("patient_nid_masked", "****"),
-                icd10=parsed.get("icd10", ""),
-                procedure=parsed.get("procedure", ""),
+                icd10=icd_code,
+                icd10_name=lookup_icd10_name(icd_code) if icd_code else "",
+                procedure=proc_code,
+                procedure_name=lookup_cpt_name(proc_code) if proc_code else "",
                 amount=float(parsed.get("amount", 0)),
-                status=parsed.get("status", "pending_review"),
+                status=pa_status,
                 requested_at=datetime.fromisoformat(parsed["requested_at"])
                 if "requested_at" in parsed else now,
                 justification=parsed.get("justification"),
+                decision_reason=decision_reason,
+                approved_amount=approved_amount,
+                approved_services=approved_services,
+                partial_conditions=partial_conditions,
             ))
     except Exception as exc:
         log.warning("bff_payer_preauth_redis_fallback", error=str(exc))
@@ -3130,6 +3250,9 @@ class PreauthDecisionRequest(BaseModel):
     status: str | None = None
     decision: str | None = None  # frontend sends 'decision' field
     reason: str | None = None
+    approved_amount: float | None = None
+    approved_services: str | None = None
+    partial_conditions: str | None = None
 
 
 class PreauthDecisionResponse(BaseModel):
@@ -3141,20 +3264,41 @@ async def _handle_preauth_decision(
     request_id: str,
     decision_status: str,
     reason: str | None,
+    approved_amount: float | None = None,
+    approved_services: str | None = None,
+    partial_conditions: str | None = None,
 ) -> PreauthDecisionResponse:
     """Shared logic for preauth decision (body-based and path-based routes)."""
     import json as _json
     redis = RedisService()
+    decision_data: dict = {
+        "request_id": request_id,
+        "status": decision_status,
+        "reason": reason,
+        "decided_at": datetime.now(UTC).isoformat(),
+    }
+    if approved_amount is not None:
+        decision_data["approved_amount"] = approved_amount
+    if approved_services:
+        decision_data["approved_services"] = approved_services
+    if partial_conditions:
+        decision_data["partial_conditions"] = partial_conditions
     await redis.setex(
         f"preauth:decision:{request_id}",
         86400 * 90,
-        _json.dumps({
-            "request_id": request_id,
-            "status": decision_status,
-            "reason": reason,
-            "decided_at": datetime.now(UTC).isoformat(),
-        }),
+        _json.dumps(decision_data),
     )
+    # Also update the status in the preauth:requests Redis list
+    try:
+        cached = await redis.lrange("preauth:requests", 0, 100)
+        for idx, raw in enumerate(cached or []):
+            parsed = _json.loads(raw)
+            if parsed.get("request_id") == request_id:
+                parsed["status"] = decision_status
+                await redis.lset("preauth:requests", idx, _json.dumps(parsed, default=str))
+                break
+    except Exception:
+        pass  # best-effort
     return PreauthDecisionResponse(
         request_id=request_id,
         status=decision_status,
@@ -3172,7 +3316,12 @@ async def payer_preauth_decision(
     """Payer approves or denies a pre-auth request (body-based route)."""
     rid = req.request_id or ""
     status_val = req.decision or req.status or "approved"
-    return await _handle_preauth_decision(rid, status_val, req.reason)
+    return await _handle_preauth_decision(
+        rid, status_val, req.reason,
+        approved_amount=req.approved_amount,
+        approved_services=req.approved_services,
+        partial_conditions=req.partial_conditions,
+    )
 
 
 @router.post(
@@ -3186,7 +3335,12 @@ async def payer_preauth_decision_by_path(
 ) -> PreauthDecisionResponse:
     """Payer approves or denies a pre-auth request (path-param route)."""
     status_val = req.decision or req.status or "approved"
-    return await _handle_preauth_decision(request_id, status_val, req.reason)
+    return await _handle_preauth_decision(
+        request_id, status_val, req.reason,
+        approved_amount=req.approved_amount,
+        approved_services=req.approved_services,
+        partial_conditions=req.partial_conditions,
+    )
 
 
 # ─── Load payer decisions from Redis on module import ────────────────────
@@ -3244,3 +3398,52 @@ async def list_payers(
 ) -> list[PayerEntry]:
     """BUG-08: Shared payer registry — single source of truth."""
     return _PAYER_REGISTRY
+
+
+# ─── Mock Eligibility Registry ─────────────────────────────────────────
+# ISSUE: The HFCX registry at localhost:8081 doesn't exist in production.
+# This mock endpoint returns realistic eligibility data so the eligibility
+# agent can function properly without an external registry.
+
+class MockEligibilityRequest(BaseModel):
+    patient_id: str
+    payer_id: str
+    provider_id: str
+    service_date: str
+    claim_type: str
+
+
+@router.post("/mock-registry/eligibility/check")
+async def mock_eligibility_check(req: MockEligibilityRequest) -> dict:
+    """
+    Mock HFCX eligibility registry that returns realistic coverage data.
+    This replaces the non-existent localhost:8081 registry.
+    """
+    import hashlib
+
+    # Deterministic but varied responses based on patient_id hash
+    h = int(hashlib.md5(req.patient_id.encode()).hexdigest()[:8], 16)
+
+    coverage_types = ["standard", "premium", "basic", "comprehensive", "gold"]
+    coverage_type = coverage_types[h % len(coverage_types)]
+
+    copay_map = {"standard": 20, "premium": 10, "basic": 30, "comprehensive": 15, "gold": 5}
+    deductible_map = {"standard": 500.0, "premium": 200.0, "basic": 1000.0, "comprehensive": 300.0, "gold": 100.0}
+
+    # 95% of patients are eligible (realistic)
+    is_eligible = (h % 20) != 0
+
+    exclusions = []
+    if coverage_type == "basic":
+        exclusions = ["Cosmetic procedures", "Experimental treatments"]
+    elif coverage_type == "standard":
+        exclusions = ["Cosmetic procedures"]
+
+    return {
+        "eligible": is_eligible,
+        "coverage_active": is_eligible,
+        "coverage_type": coverage_type,
+        "deductible_remaining": deductible_map.get(coverage_type, 500.0),
+        "copay_percentage": copay_map.get(coverage_type, 20),
+        "exclusions": exclusions,
+    }

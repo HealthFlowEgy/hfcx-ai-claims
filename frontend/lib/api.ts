@@ -762,7 +762,14 @@ export const api = {
   },
 
   updatePreauthStatus(
-    payload: { request_id: string; decision: string; reason?: string },
+    payload: {
+      request_id: string;
+      decision: string;
+      reason?: string;
+      approved_amount?: number;
+      approved_services?: string;
+      partial_conditions?: string;
+    },
     opts: FetchOptions = {},
   ) {
     return request<{ request_id: string; status: string }>(

@@ -113,3 +113,66 @@ def extract_procedure_name(coding_result: dict[str, Any] | None) -> str:
         if code:
             return code
     return ""
+
+
+# ── Static code-to-name lookup (loaded once) ─────────────────────────────
+
+_ICD10_NAMES: dict[str, str] = {}
+_CPT_NAMES: dict[str, str] = {}
+_LOOKUP_LOADED = False
+
+
+def _ensure_lookup_loaded() -> None:
+    """Lazily load ICD-10 and CPT name lookup tables from data files."""
+    global _LOOKUP_LOADED
+    if _LOOKUP_LOADED:
+        return
+    import csv
+    from pathlib import Path
+
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+
+    # ICD-10
+    icd_path = data_dir / "icd10cm-codes-2026.txt"
+    if icd_path.exists():
+        with open(icd_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line.strip():
+                    continue
+                parts = line.split(None, 1)
+                if len(parts) == 2:
+                    raw_code = parts[0].strip()
+                    desc = parts[1].strip()
+                    if len(raw_code) > 3:
+                        code = raw_code[:3] + "." + raw_code[3:]
+                    else:
+                        code = raw_code
+                    _ICD10_NAMES[code.upper()] = desc
+
+    # CPT
+    cpt_path = data_dir / "cpt4_raw.csv"
+    if cpt_path.exists():
+        with open(cpt_path, encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # skip header
+            for row in reader:
+                if len(row) >= 2:
+                    code = row[0].strip()
+                    desc = row[1].strip()
+                    if code and desc:
+                        _CPT_NAMES[code.upper()] = desc
+
+    _LOOKUP_LOADED = True
+
+
+def lookup_icd10_name(code: str) -> str:
+    """Return the human-readable name for an ICD-10 code, or ``""``."""
+    _ensure_lookup_loaded()
+    return _ICD10_NAMES.get(code.upper().strip(), "")
+
+
+def lookup_cpt_name(code: str) -> str:
+    """Return the human-readable name for a CPT/HCPCS code, or ``""``."""
+    _ensure_lookup_loaded()
+    return _CPT_NAMES.get(code.upper().strip(), "")
